@@ -1,0 +1,30 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "Modules": [
+    {
+      "Name": "RacetrackSurface",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    },
+    {
+      "Name": "RacetrackSurfaceEditor",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ],
+  "FriendlyName": "RacetrackSurface",
+  "Description": "Racetrack surface rubber accumulation system",
+  "Category": "Rendering",
+  "CreatedBy": "Balázs Fábián",
+  "CreatedByURL": "https://github.com/Balazs200001",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
+  "CanContainContent": "true",
+  "Installed": false,
+  "IsBetaVersion": false,
+  "Plugins": [],
+  "SupportedTargetPlatforms": null
+}
