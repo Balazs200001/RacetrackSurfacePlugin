@@ -1,9 +1,24 @@
 using UnrealBuildTool;
 
-public class RacetrackSurfaceEditor: ModuleRules
+public class RacetrackSurfaceEditor : ModuleRules
 {
     public RacetrackSurfaceEditor(ReadOnlyTargetRules Target) : base(Target)
     {
-        PrivateDependencyModuleNames.AddRange(new string[] {"Core", "CoreUObject", "Engine"});
+        PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+
+        PublicDependencyModuleNames.AddRange(new string[]
+        {
+            "Core"
+        });
+
+        PrivateDependencyModuleNames.AddRange(new string[]
+        {
+            "CoreUObject",
+            "Engine",
+            "Slate",
+            "SlateCore",
+            "UnrealEd",
+            "RacetrackSurface"
+        });
     }
 }
