@@ -47,6 +47,35 @@ namespace
 
 		return Strokes;
 	}
+
+	TArray<FSurfaceBrushStroke> MakeFannedContactStrokes(const FSurfaceRegion& Region, int32 Count)
+	{
+		const double FrameTravel = RaceSpeedCentimetresPerSecond / TargetFrameHertz;
+		const double NormalisedLength = Region.WorldDistanceToNormalised(FrameTravel);
+		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(20.0));
+
+		TArray<FSurfaceBrushStroke> Strokes;
+		Strokes.Reserve(Count);
+
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			const double Lane = 0.45 + 0.02 * Index;
+			const double Angle = UE_DOUBLE_PI * static_cast<double>(Index) / static_cast<double>(Count);
+			const FVector2D Half =
+				FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * (NormalisedLength * 0.5);
+
+			FSurfaceBrushStroke Stroke;
+			Stroke.RegionStart = FVector2D(0.5, Lane) - Half;
+			Stroke.RegionEnd = FVector2D(0.5, Lane) + Half;
+			Stroke.WidthInTexels = WidthInTexels;
+			Stroke.Intensity = 0.8f;
+			Stroke.Channel = EAccumulationChannel::SkidMark;
+
+			Strokes.Add(Stroke);
+		}
+
+		return Strokes;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -89,6 +118,7 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 	const TArray<FSurfaceBrushStroke> SingleContact = MakeContactStrokes(Region, 1);
 	const TArray<FSurfaceBrushStroke> FourContacts = MakeContactStrokes(Region, 4);
 	const TArray<FSurfaceBrushStroke> EightyContacts = MakeContactStrokes(Region, 80);
+	const TArray<FSurfaceBrushStroke> EightyFannedContacts = MakeFannedContactStrokes(Region, 80);
 
 	Buffer->PaintStrokes(World, FourContacts);
 	Buffer->ApplyDecay(World, 0.99f);
@@ -100,6 +130,8 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 	double FourMinimum = 0.0;
 	double EightyMedian = 0.0;
 	double EightyMinimum = 0.0;
+	double EightyFannedMedian = 0.0;
+	double EightyFannedMinimum = 0.0;
 	double DecayMedian = 0.0;
 	double DecayMinimum = 0.0;
 
@@ -107,6 +139,10 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 		SampleGpuWork([&]() { Buffer->PaintStrokes(World, SingleContact); }, SingleMedian, SingleMinimum)
 		&& SampleGpuWork([&]() { Buffer->PaintStrokes(World, FourContacts); }, FourMedian, FourMinimum)
 		&& SampleGpuWork([&]() { Buffer->PaintStrokes(World, EightyContacts); }, EightyMedian, EightyMinimum)
+		&& SampleGpuWork(
+			[&]() { Buffer->PaintStrokes(World, EightyFannedContacts); },
+			EightyFannedMedian,
+			EightyFannedMinimum)
 		&& SampleGpuWork([&]() { Buffer->ApplyDecay(World, 0.99f); }, DecayMedian, DecayMinimum);
 
 	if (!bSampled)
@@ -128,7 +164,11 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 
 	AddInfo(FString::Printf(TEXT("Paint 1 contact: median %.4f ms, min %.4f ms"), SingleMedian, SingleMinimum));
 	AddInfo(FString::Printf(TEXT("Paint 4 contacts: median %.4f ms, min %.4f ms"), FourMedian, FourMinimum));
-	AddInfo(FString::Printf(TEXT("Paint 80 contacts: median %.4f ms, min %.4f ms"), EightyMedian, EightyMinimum));
+	AddInfo(FString::Printf(TEXT("Paint 80 contacts, uniform heading: median %.4f ms, min %.4f ms"), EightyMedian, EightyMinimum));
+	AddInfo(FString::Printf(
+		TEXT("Paint 80 contacts, 80 distinct headings: median %.4f ms, min %.4f ms"),
+		EightyFannedMedian,
+		EightyFannedMinimum));
 	AddInfo(FString::Printf(TEXT("Full buffer decay: median %.4f ms, min %.4f ms"), DecayMedian, DecayMinimum));
 
 	const double GateTotal = FourMedian + DecayMedian;
