@@ -1,5 +1,7 @@
 #include "SurfaceAccumulationSubsystem.h"
 
+#include "SurfaceAccumulationBuffer.h"
+
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
 void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -20,7 +22,23 @@ void USurfaceAccumulationSubsystem::Deinitialize()
 	PendingContacts.Empty();
 	StrokesResolvedThisFrame.Empty();
 
+	if (Buffer != nullptr)
+	{
+		Buffer->Release();
+		Buffer = nullptr;
+	}
+
 	Super::Deinitialize();
+}
+
+bool USurfaceAccumulationSubsystem::EnsureBuffer()
+{
+	if (Buffer == nullptr)
+	{
+		Buffer = NewObject<USurfaceAccumulationBuffer>(this);
+	}
+
+	return Buffer != nullptr && Buffer->Allocate(this, Region);
 }
 
 void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
@@ -68,6 +86,11 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 	PendingContacts.Reset();
 	StrokesResolvedThisFrame.Reset();
 	ContactsDiscardedOutsideRegion = 0;
+
+	if (Buffer != nullptr)
+	{
+		Buffer->Clear(this);
+	}
 }
 
 bool USurfaceAccumulationSubsystem::BuildStroke(
@@ -112,4 +135,9 @@ void USurfaceAccumulationSubsystem::FlushPendingContacts(float DeltaSeconds)
 	}
 
 	PendingContacts.Reset();
+
+	if (StrokesResolvedThisFrame.Num() > 0 && EnsureBuffer())
+	{
+		Buffer->PaintStrokes(this, StrokesResolvedThisFrame);
+	}
 }

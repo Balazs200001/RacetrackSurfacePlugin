@@ -7,6 +7,8 @@
 #include "SurfaceRegion.h"
 #include "SurfaceAccumulationSubsystem.generated.h"
 
+class USurfaceAccumulationBuffer;
+
 RACETRACKSURFACE_API DECLARE_LOG_CATEGORY_EXTERN(LogRacetrackSurface, Log, All);
 
 UCLASS()
@@ -54,10 +56,20 @@ public:
 
 	bool BuildStroke(const FSurfaceContact& Contact, float DeltaSeconds, FSurfaceBrushStroke& OutStroke) const;
 
+	USurfaceAccumulationBuffer* GetBuffer() const
+	{
+		return Buffer;
+	}
+
 private:
 	void FlushPendingContacts(float DeltaSeconds);
 
+	bool EnsureBuffer();
+
 	FSurfaceRegion Region;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USurfaceAccumulationBuffer> Buffer;
 
 	TArray<FSurfaceContact> PendingContacts;
 
