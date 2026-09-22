@@ -12,6 +12,13 @@ enum class EAccumulationChannel : uint8
 };
 
 UENUM(BlueprintType)
+enum class ESurfacePaintMode : uint8
+{
+	Additive,
+	Saturating
+};
+
+UENUM(BlueprintType)
 enum class ESurfaceSampleStatus : uint8
 {
 	Valid,

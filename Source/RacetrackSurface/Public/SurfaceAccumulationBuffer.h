@@ -24,7 +24,10 @@ public:
 		return Target != nullptr;
 	}
 
-	void PaintStrokes(UObject* WorldContext, const TArray<FSurfaceBrushStroke>& Strokes);
+	void PaintStrokes(
+		UObject* WorldContext,
+		const TArray<FSurfaceBrushStroke>& Strokes,
+		ESurfacePaintMode PaintMode = ESurfacePaintMode::Additive);
 
 	void ApplyDecay(UObject* WorldContext, float Retention);
 

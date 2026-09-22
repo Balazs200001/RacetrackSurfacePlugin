@@ -209,7 +209,10 @@ void USurfaceAccumulationBuffer::Clear(UObject* WorldContext)
 	UKismetRenderingLibrary::ClearRenderTarget2D(WorldContext, Target, FLinearColor::Black);
 }
 
-void USurfaceAccumulationBuffer::PaintStrokes(UObject* WorldContext, const TArray<FSurfaceBrushStroke>& Strokes)
+void USurfaceAccumulationBuffer::PaintStrokes(
+	UObject* WorldContext,
+	const TArray<FSurfaceBrushStroke>& Strokes,
+	ESurfacePaintMode PaintMode)
 {
 	if (Target == nullptr || WorldContext == nullptr || Strokes.Num() == 0)
 	{
@@ -231,6 +234,9 @@ void USurfaceAccumulationBuffer::PaintStrokes(UObject* WorldContext, const TArra
 
 	if (Canvas != nullptr)
 	{
+		const bool bSaturating = PaintMode == ESurfacePaintMode::Saturating;
+		const EBlendMode BlendMode = bSaturating ? BLEND_Translucent : BLEND_Additive;
+
 		for (const FSurfaceBrushStroke& Stroke : Strokes)
 		{
 			const FVector2D Start = Stroke.RegionStart * CanvasSize;
@@ -248,14 +254,20 @@ void USurfaceAccumulationBuffer::PaintStrokes(UObject* WorldContext, const TArra
 				? 0.0f
 				: FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X));
 
+			const FLinearColor Mask = ChannelMask(Stroke.Channel);
+
+			const FLinearColor RenderColour = bSaturating
+				? FLinearColor(Mask.R, Mask.G, Mask.B, Stroke.Intensity)
+				: Mask * Stroke.Intensity;
+
 			Canvas->K2_DrawTexture(
 				Brush,
 				TopLeft,
 				QuadSize,
 				FVector2D::ZeroVector,
 				FVector2D::UnitVector,
-				ChannelMask(Stroke.Channel) * Stroke.Intensity,
-				BLEND_Additive,
+				RenderColour,
+				BlendMode,
 				RotationDegrees,
 				FVector2D(0.5f, 0.5f));
 		}
