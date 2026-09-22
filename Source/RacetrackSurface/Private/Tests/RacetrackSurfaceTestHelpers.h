@@ -7,6 +7,8 @@
 
 namespace RacetrackSurfaceTest
 {
+	constexpr double RaceSpeedCentimetresPerSecond = 5500.0;
+
 	inline FSurfaceRegion MakeTestRegion()
 	{
 		FSurfaceRegion Region;

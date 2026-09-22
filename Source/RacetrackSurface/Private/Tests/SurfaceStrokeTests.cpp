@@ -5,10 +5,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+using RacetrackSurfaceTest::RaceSpeedCentimetresPerSecond;
+
 namespace
 {
-	constexpr double FrameSeconds = 1.0 / 30.0;
-	constexpr double RaceSpeedCentimetresPerSecond = 5500.0;
+	constexpr float FrameSeconds = 1.0f / 30.0f;
 
 	TStrongObjectPtr<USurfaceAccumulationSubsystem> MakeSubsystem()
 	{
@@ -101,7 +102,7 @@ bool FSurfaceStrokeLengthScalesWithTimeCompression::RunTest(const FString& Param
 	FSurfaceBrushStroke CompressedStroke;
 
 	Subsystem->BuildStroke(Contact, FrameSeconds, RealTimeStroke);
-	Subsystem->BuildStroke(Contact, FrameSeconds * 20.0, CompressedStroke);
+	Subsystem->BuildStroke(Contact, FrameSeconds * 20.0f, CompressedStroke);
 
 	const double RealTimeLength = (RealTimeStroke.RegionEnd - RealTimeStroke.RegionStart).Size();
 	const double CompressedLength = (CompressedStroke.RegionEnd - CompressedStroke.RegionStart).Size();
