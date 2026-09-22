@@ -3,12 +3,103 @@
 #include "CanvasTypes.h"
 #include "Engine/Canvas.h"
 #include "Engine/Texture2D.h"
+#include "HAL/IConsoleManager.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "PixelFormat.h"
+#include "RHI.h"
+#include "RHICommandList.h"
+#include "RHIResources.h"
+#include "RenderingThread.h"
 #include "SurfaceAccumulationSubsystem.h"
 
 namespace
 {
+	TAutoConsoleVariable<int32> CVarTimePaint(
+		TEXT("r.RacetrackSurface.TimePaint"),
+		0,
+		TEXT("When 1, brackets each PaintStrokes call in RHI timestamp queries and logs the GPU time. ")
+		TEXT("Synchronises the game thread with the render thread on every paint, so it is a measurement ")
+		TEXT("mode rather than something to leave on."),
+		ECVF_Default);
+
+	struct FPaintTimingQueries
+	{
+		FRenderQueryRHIRef Start;
+		FRenderQueryRHIRef End;
+		uint64 StartMicroseconds = 0;
+		uint64 EndMicroseconds = 0;
+		bool bResolved = false;
+	};
+
+	class FScopedPaintTimer
+	{
+	public:
+		explicit FScopedPaintTimer(int32 InStrokeCount)
+			: StrokeCount(InStrokeCount)
+			, bEnabled(CVarTimePaint.GetValueOnGameThread() != 0 && GSupportsTimestampRenderQueries)
+		{
+			if (!bEnabled)
+			{
+				return;
+			}
+
+			Queries = MakeShared<FPaintTimingQueries>();
+
+			ENQUEUE_RENDER_COMMAND(RacetrackSurfaceBeginPaintTiming)(
+				[Captured = Queries](FRHICommandListImmediate& RHICmdList)
+				{
+					Captured->Start = RHICreateRenderQuery(RQT_AbsoluteTime);
+					Captured->End = RHICreateRenderQuery(RQT_AbsoluteTime);
+
+					if (Captured->Start.IsValid())
+					{
+						RHICmdList.EndRenderQuery(Captured->Start);
+					}
+				});
+		}
+
+		~FScopedPaintTimer()
+		{
+			if (!bEnabled || !Queries.IsValid())
+			{
+				return;
+			}
+
+			ENQUEUE_RENDER_COMMAND(RacetrackSurfaceEndPaintTiming)(
+				[Captured = Queries](FRHICommandListImmediate& RHICmdList)
+				{
+					if (!Captured->Start.IsValid() || !Captured->End.IsValid())
+					{
+						return;
+					}
+
+					RHICmdList.EndRenderQuery(Captured->End);
+					RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+
+					Captured->bResolved =
+						RHIGetRenderQueryResult(Captured->Start, Captured->StartMicroseconds, true)
+						&& RHIGetRenderQueryResult(Captured->End, Captured->EndMicroseconds, true);
+				});
+
+			FlushRenderingCommands();
+
+			if (!Queries->bResolved || Queries->EndMicroseconds < Queries->StartMicroseconds)
+			{
+				return;
+			}
+
+			UE_LOG(LogRacetrackSurface, Log,
+				TEXT("Paint timing: %d contacts, %.4f ms"),
+				StrokeCount,
+				static_cast<double>(Queries->EndMicroseconds - Queries->StartMicroseconds) / 1000.0);
+		}
+
+	private:
+		TSharedPtr<FPaintTimingQueries> Queries;
+		int32 StrokeCount;
+		bool bEnabled;
+	};
+
 	class FScopedCanvasFlushDeferral
 	{
 	public:
@@ -255,6 +346,8 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 	{
 		return;
 	}
+
+	const FScopedPaintTimer PaintTimer(Strokes.Num());
 
 	UCanvas* Canvas = nullptr;
 	FVector2D CanvasSize = FVector2D::ZeroVector;
