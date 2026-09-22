@@ -1,10 +1,40 @@
 #include "SurfaceAccumulationBuffer.h"
 
+#include "CanvasTypes.h"
 #include "Engine/Canvas.h"
 #include "Engine/Texture2D.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "PixelFormat.h"
 #include "SurfaceAccumulationSubsystem.h"
+
+namespace
+{
+	class FScopedCanvasFlushDeferral
+	{
+	public:
+		explicit FScopedCanvasFlushDeferral(UCanvas* InCanvas)
+			: Canvas(InCanvas != nullptr ? InCanvas->Canvas : nullptr)
+			, ModesToRestore(Canvas != nullptr ? Canvas->GetAllowedModes() : 0)
+		{
+			if (Canvas != nullptr)
+			{
+				Canvas->SetAllowedModes(ModesToRestore & ~FCanvas::Allow_Flush);
+			}
+		}
+
+		~FScopedCanvasFlushDeferral()
+		{
+			if (Canvas != nullptr)
+			{
+				Canvas->SetAllowedModes(ModesToRestore);
+			}
+		}
+
+	private:
+		FCanvas* Canvas;
+		uint32 ModesToRestore;
+	};
+}
 
 namespace RacetrackSurfaceBrush
 {
@@ -234,6 +264,8 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 
 	if (Canvas != nullptr)
 	{
+		const FScopedCanvasFlushDeferral FlushDeferral(Canvas);
+
 		const bool bSaturating = PaintMode == ESurfacePaintMode::Saturating;
 		const EBlendMode BlendMode = bSaturating ? BLEND_Translucent : BLEND_Additive;
 
