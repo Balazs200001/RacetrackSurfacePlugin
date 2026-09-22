@@ -17,4 +17,12 @@ namespace RacetrackSurfaceTrackSpace
 		const USplineComponent& Centreline,
 		double TrackWidth,
 		const FSurfaceTrackCoordinate& Coordinate);
+
+	RACETRACKSURFACE_API void WorldVelocityToTrackRates(
+		const USplineComponent& Centreline,
+		double TrackWidth,
+		const FSurfaceTrackCoordinate& At,
+		const FVector& WorldVelocity,
+		double& OutCentimetresPerSecondAlongCentreline,
+		double& OutLateralOffsetAlphaPerSecond);
 }

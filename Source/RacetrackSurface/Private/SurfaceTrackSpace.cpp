@@ -48,4 +48,24 @@ namespace RacetrackSurfaceTrackSpace
 
 		return CentrelinePosition + RightVector * (Coordinate.LateralOffsetAlpha * TrackWidth * 0.5);
 	}
+
+	void WorldVelocityToTrackRates(
+		const USplineComponent& Centreline,
+		double TrackWidth,
+		const FSurfaceTrackCoordinate& At,
+		const FVector& WorldVelocity,
+		double& OutCentimetresPerSecondAlongCentreline,
+		double& OutLateralOffsetAlphaPerSecond)
+	{
+		const double HalfWidth = FMath::Max(TrackWidth * 0.5, UE_DOUBLE_SMALL_NUMBER);
+		const float Distance = static_cast<float>(At.DistanceAlongCentreline);
+
+		const FVector Forward =
+			Centreline.GetDirectionAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::World);
+		const FVector RightVector =
+			Centreline.GetRightVectorAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::World);
+
+		OutCentimetresPerSecondAlongCentreline = FVector::DotProduct(WorldVelocity, Forward);
+		OutLateralOffsetAlphaPerSecond = FVector::DotProduct(WorldVelocity, RightVector) / HalfWidth;
+	}
 }

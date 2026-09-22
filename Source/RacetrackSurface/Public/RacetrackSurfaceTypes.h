@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "SurfaceTrackRibbon.h"
 #include "RacetrackSurfaceTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -36,6 +37,30 @@ struct FSurfaceContact
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
 	FVector Velocity = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SlipAmount = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "0.0"))
+	float ContactWidth = 20.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
+	EAccumulationChannel Channel = EAccumulationChannel::SkidMark;
+};
+
+USTRUCT(BlueprintType)
+struct FSurfaceTrackContact
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
+	FSurfaceTrackCoordinate Coordinate;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
+	double CentimetresPerSecondAlongCentreline = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
+	double LateralOffsetAlphaPerSecond = 0.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float SlipAmount = 0.0f;

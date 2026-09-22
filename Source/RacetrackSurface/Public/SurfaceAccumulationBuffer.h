@@ -4,7 +4,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "UObject/Object.h"
 #include "RacetrackSurfaceTypes.h"
-#include "SurfaceRegion.h"
+#include "SurfaceTrackRibbon.h"
 #include "SurfaceAccumulationBuffer.generated.h"
 
 class UTexture2D;
@@ -15,7 +15,9 @@ class USurfaceAccumulationBuffer : public UObject
 	GENERATED_BODY()
 
 public:
-	bool Allocate(UObject* WorldContext, const FSurfaceRegion& Region, ETextureRenderTargetFormat Format = RTF_RGBA16f);
+	bool Allocate(UObject* WorldContext, int32 Width, int32 Height, ETextureRenderTargetFormat Format = RTF_RGBA16f);
+
+	bool Allocate(UObject* WorldContext, const FSurfaceTrackRibbon& Ribbon, ETextureRenderTargetFormat Format = RTF_RGBA16f);
 
 	void Release();
 
@@ -38,9 +40,14 @@ public:
 		return Target;
 	}
 
-	int32 GetAllocatedResolution() const
+	int32 GetAllocatedWidth() const
 	{
-		return AllocatedResolution;
+		return AllocatedWidth;
+	}
+
+	int32 GetAllocatedHeight() const
+	{
+		return AllocatedHeight;
 	}
 
 	ETextureRenderTargetFormat GetAllocatedFormat() const
@@ -66,7 +73,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> Solid;
 
-	int32 AllocatedResolution = 0;
+	int32 AllocatedWidth = 0;
+
+	int32 AllocatedHeight = 0;
 
 	ETextureRenderTargetFormat AllocatedFormat = RTF_RGBA16f;
 };

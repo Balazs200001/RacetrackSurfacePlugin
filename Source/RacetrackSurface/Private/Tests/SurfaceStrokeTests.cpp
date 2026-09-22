@@ -1,28 +1,50 @@
 #include "Misc/AutomationTest.h"
+#include "Components/SplineComponent.h"
 #include "UObject/StrongObjectPtr.h"
 #include "SurfaceAccumulationSubsystem.h"
+#include "SurfaceTrackSpace.h"
 #include "Tests/RacetrackSurfaceTestHelpers.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+using RacetrackSurfaceTest::HarnessTrackWidth;
+using RacetrackSurfaceTest::MakeTestCircuit;
+using RacetrackSurfaceTest::MakeTestRibbon;
 using RacetrackSurfaceTest::RaceSpeedCentimetresPerSecond;
 
 namespace
 {
 	constexpr float FrameSeconds = 1.0f / 30.0f;
 
-	TStrongObjectPtr<USurfaceAccumulationSubsystem> MakeSubsystem()
+	struct FHarness
 	{
-		TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem(NewObject<USurfaceAccumulationSubsystem>());
-		Subsystem->ConfigureRegion(RacetrackSurfaceTest::MakeTestRegion());
-		return Subsystem;
+		TStrongObjectPtr<USplineComponent> Circuit;
+		TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem;
+		FSurfaceTrackRibbon Ribbon;
+
+		double Length() const
+		{
+			return Ribbon.TrackLength;
+		}
+	};
+
+	FHarness MakeHarness()
+	{
+		FHarness Harness;
+		Harness.Circuit = MakeTestCircuit();
+		Harness.Ribbon = MakeTestRibbon(*Harness.Circuit);
+		Harness.Subsystem = TStrongObjectPtr<USurfaceAccumulationSubsystem>(
+			NewObject<USurfaceAccumulationSubsystem>());
+		Harness.Subsystem->ConfigureTrackRibbon(Harness.Circuit.Get(), Harness.Ribbon);
+		return Harness;
 	}
 
-	FSurfaceContact MakeContact(const FVector& Position, const FVector& Velocity)
+	FSurfaceTrackContact MakeTrackContact(double Distance, double Alpha, double Speed)
 	{
-		FSurfaceContact Contact;
-		Contact.WorldPosition = Position;
-		Contact.Velocity = Velocity;
+		FSurfaceTrackContact Contact;
+		Contact.Coordinate.DistanceAlongCentreline = Distance;
+		Contact.Coordinate.LateralOffsetAlpha = Alpha;
+		Contact.CentimetresPerSecondAlongCentreline = Speed;
 		Contact.SlipAmount = 0.5f;
 		Contact.ContactWidth = 20.0f;
 		Contact.Channel = EAccumulationChannel::SkidMark;
@@ -31,31 +53,40 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FSurfaceStrokeSweepsBackAlongVelocity,
-	"RacetrackSurface.Stroke.SweepsBackAlongVelocity",
+	FSurfaceStrokeSweepsBackAlongTravel,
+	"RacetrackSurface.Stroke.SweepsBackAlongTravel",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
-bool FSurfaceStrokeSweepsBackAlongVelocity::RunTest(const FString& Parameters)
+bool FSurfaceStrokeSweepsBackAlongTravel::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
-	const FSurfaceRegion& Region = Subsystem->GetRegion();
+	const FHarness Harness = MakeHarness();
+	const double Distance = Harness.Length() * 0.5;
 
-	const FVector Velocity(RaceSpeedCentimetresPerSecond, 0.0, 0.0);
-	const FSurfaceContact Contact = MakeContact(FVector::ZeroVector, Velocity);
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(Distance, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, Strokes);
 
-	FSurfaceBrushStroke Stroke;
-	TestTrue(TEXT("Contact inside the region produces a stroke"), Subsystem->BuildStroke(Contact, FrameSeconds, Stroke));
+	TestEqual(TEXT("A contact away from the seam produces exactly one stroke"), Strokes.Num(), 1);
+
+	if (Strokes.Num() != 1)
+	{
+		return false;
+	}
 
 	const double ExpectedTravel = RaceSpeedCentimetresPerSecond * FrameSeconds;
-	const double ActualTravel = (Stroke.RegionEnd - Stroke.RegionStart).Size() * Region.WorldSize;
+	const double ActualTravel = (Strokes[0].RegionEnd.X - Strokes[0].RegionStart.X) * Harness.Length();
 
 	TestTrue(
-		TEXT("Stroke spans the distance travelled during the frame"),
+		FString::Printf(TEXT("Stroke spans the distance travelled during the frame, got %.2f cm"), ActualTravel),
 		FMath::IsNearlyEqual(ActualTravel, ExpectedTravel, 1.0));
 
 	TestTrue(
 		TEXT("Stroke ends at the reported contact position"),
-		Stroke.RegionEnd.Equals(Region.WorldToNormalised(FVector::ZeroVector), UE_DOUBLE_KINDA_SMALL_NUMBER));
+		FMath::IsNearlyEqual(Strokes[0].RegionEnd.X, Distance / Harness.Length(), UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	TestTrue(
+		TEXT("A contact on the centreline sits half way across the ribbon"),
+		FMath::IsNearlyEqual(Strokes[0].RegionEnd.Y, 0.5, UE_DOUBLE_KINDA_SMALL_NUMBER));
 
 	return true;
 }
@@ -67,21 +98,30 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSurfaceStrokeLeavesNoGapBetweenFrames::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
+	const FHarness Harness = MakeHarness();
 
-	const FVector Velocity(RaceSpeedCentimetresPerSecond, 0.0, 0.0);
-	const FVector FirstPosition = FVector::ZeroVector;
-	const FVector SecondPosition = FirstPosition + Velocity * FrameSeconds;
+	const double Travel = RaceSpeedCentimetresPerSecond * FrameSeconds;
+	const double FirstDistance = Harness.Length() * 0.25;
 
-	FSurfaceBrushStroke FirstStroke;
-	FSurfaceBrushStroke SecondStroke;
+	TArray<FSurfaceBrushStroke> FirstStrokes;
+	TArray<FSurfaceBrushStroke> SecondStrokes;
 
-	TestTrue(TEXT("First frame produces a stroke"), Subsystem->BuildStroke(MakeContact(FirstPosition, Velocity), FrameSeconds, FirstStroke));
-	TestTrue(TEXT("Second frame produces a stroke"), Subsystem->BuildStroke(MakeContact(SecondPosition, Velocity), FrameSeconds, SecondStroke));
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(FirstDistance, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, FirstStrokes);
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(FirstDistance + Travel, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, SecondStrokes);
+
+	TestEqual(TEXT("First frame produces one stroke"), FirstStrokes.Num(), 1);
+	TestEqual(TEXT("Second frame produces one stroke"), SecondStrokes.Num(), 1);
+
+	if (FirstStrokes.Num() != 1 || SecondStrokes.Num() != 1)
+	{
+		return false;
+	}
 
 	TestTrue(
 		TEXT("Consecutive strokes abut exactly, leaving no dotted gap at speed"),
-		SecondStroke.RegionStart.Equals(FirstStroke.RegionEnd, UE_DOUBLE_KINDA_SMALL_NUMBER));
+		SecondStrokes[0].RegionStart.Equals(FirstStrokes[0].RegionEnd, UE_DOUBLE_KINDA_SMALL_NUMBER));
 
 	return true;
 }
@@ -93,19 +133,24 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSurfaceStrokeLengthScalesWithTimeCompression::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
+	const FHarness Harness = MakeHarness();
+	const FSurfaceTrackContact Contact =
+		MakeTrackContact(Harness.Length() * 0.5, 0.0, RaceSpeedCentimetresPerSecond);
 
-	const FVector Velocity(RaceSpeedCentimetresPerSecond, 0.0, 0.0);
-	const FSurfaceContact Contact = MakeContact(FVector::ZeroVector, Velocity);
+	TArray<FSurfaceBrushStroke> RealTime;
+	TArray<FSurfaceBrushStroke> Compressed;
 
-	FSurfaceBrushStroke RealTimeStroke;
-	FSurfaceBrushStroke CompressedStroke;
+	Harness.Subsystem->BuildStrokes(Contact, FrameSeconds, RealTime);
+	Harness.Subsystem->BuildStrokes(Contact, FrameSeconds * 20.0f, Compressed);
 
-	Subsystem->BuildStroke(Contact, FrameSeconds, RealTimeStroke);
-	Subsystem->BuildStroke(Contact, FrameSeconds * 20.0f, CompressedStroke);
+	if (RealTime.Num() != 1 || Compressed.Num() != 1)
+	{
+		AddError(TEXT("Expected a single stroke from each delta."));
+		return false;
+	}
 
-	const double RealTimeLength = (RealTimeStroke.RegionEnd - RealTimeStroke.RegionStart).Size();
-	const double CompressedLength = (CompressedStroke.RegionEnd - CompressedStroke.RegionStart).Size();
+	const double RealTimeLength = RealTime[0].RegionEnd.X - RealTime[0].RegionStart.X;
+	const double CompressedLength = Compressed[0].RegionEnd.X - Compressed[0].RegionStart.X;
 
 	TestTrue(
 		TEXT("Twenty times the delta produces twenty times the stroke, so compression stays continuous"),
@@ -115,38 +160,130 @@ bool FSurfaceStrokeLengthScalesWithTimeCompression::RunTest(const FString& Param
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FSurfaceStrokeRejectsContactsOutsideRegion,
-	"RacetrackSurface.Stroke.RejectsContactsOutsideRegion",
+	FSurfaceStrokeSplitsAtTheLapSeam,
+	"RacetrackSurface.Stroke.SplitsAtTheLapSeam",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
-bool FSurfaceStrokeRejectsContactsOutsideRegion::RunTest(const FString& Parameters)
+bool FSurfaceStrokeSplitsAtTheLapSeam::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
+	const FHarness Harness = MakeHarness();
+	const double Length = Harness.Length();
 
-	const FSurfaceContact FarAway = MakeContact(FVector(500000.0, 500000.0, 0.0), FVector(1.0, 0.0, 0.0));
+	const double Travel = RaceSpeedCentimetresPerSecond * FrameSeconds;
+	const double PastTheSeam = Travel * 0.25;
 
-	FSurfaceBrushStroke Stroke;
-	TestFalse(TEXT("A contact well outside the region is discarded"), Subsystem->BuildStroke(FarAway, FrameSeconds, Stroke));
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(PastTheSeam, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, Strokes);
+
+	TestEqual(TEXT("A contact straddling the lap seam produces two strokes, not one"), Strokes.Num(), 2);
+
+	if (Strokes.Num() != 2)
+	{
+		return false;
+	}
+
+	TestTrue(
+		TEXT("The first stroke runs up to the far end of the ribbon"),
+		FMath::IsNearlyEqual(Strokes[0].RegionEnd.X, 1.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	TestTrue(
+		TEXT("The second stroke starts at the near end of the ribbon"),
+		FMath::IsNearlyEqual(Strokes[1].RegionStart.X, 0.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	const double FirstLength = (Strokes[0].RegionEnd.X - Strokes[0].RegionStart.X) * Length;
+	const double SecondLength = (Strokes[1].RegionEnd.X - Strokes[1].RegionStart.X) * Length;
+
+	TestTrue(
+		FString::Printf(TEXT("The two pieces together span the frame's travel, got %.2f + %.2f cm against %.2f"),
+			FirstLength, SecondLength, Travel),
+		FMath::IsNearlyEqual(FirstLength + SecondLength, Travel, 1.0));
+
+	TestTrue(
+		FString::Printf(TEXT("Neither piece smears across the ribbon, longest is %.2f cm of a %.0f cm lap"),
+			FMath::Max(FirstLength, SecondLength), Length),
+		FMath::Max(FirstLength, SecondLength) < Travel + 1.0);
 
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FSurfaceStrokeKeepsContactsCrossingTheEdge,
-	"RacetrackSurface.Stroke.KeepsContactsCrossingTheEdge",
+	FSurfaceStrokeDoesNotSplitAnOpenTrack,
+	"RacetrackSurface.Stroke.DoesNotSplitAnOpenTrack",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
-bool FSurfaceStrokeKeepsContactsCrossingTheEdge::RunTest(const FString& Parameters)
+bool FSurfaceStrokeDoesNotSplitAnOpenTrack::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
+	FHarness Harness = MakeHarness();
+	Harness.Ribbon.bClosedLoop = false;
+	Harness.Subsystem->ConfigureTrackRibbon(Harness.Circuit.Get(), Harness.Ribbon);
 
-	const FVector Velocity(RaceSpeedCentimetresPerSecond, 0.0, 0.0);
-	const FSurfaceContact LeavingRegion = MakeContact(FVector(10050.0, 0.0, 0.0), Velocity);
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(10.0, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, Strokes);
 
-	FSurfaceBrushStroke Stroke;
-	TestTrue(
-		TEXT("A stroke starting inside and ending outside is kept"),
-		Subsystem->BuildStroke(LeavingRegion, FrameSeconds, Stroke));
+	TestEqual(TEXT("An open track clamps at its start rather than wrapping into two strokes"), Strokes.Num(), 1);
+
+	if (Strokes.Num() == 1)
+	{
+		TestTrue(
+			TEXT("The clamped stroke starts at the beginning of the ribbon"),
+			FMath::IsNearlyEqual(Strokes[0].RegionStart.X, 0.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceStrokeRejectsContactsOffTheTrack,
+	"RacetrackSurface.Stroke.RejectsContactsOffTheTrack",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceStrokeRejectsContactsOffTheTrack::RunTest(const FString& Parameters)
+{
+	const FHarness Harness = MakeHarness();
+
+	TestFalse(
+		TEXT("A track-space contact beyond the track edge is rejected"),
+		Harness.Subsystem->RegisterSurfaceContactInTrackSpace(
+			Harness.Length() * 0.5, 1.5, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+
+	TestFalse(
+		TEXT("A world-space contact far from the track is rejected"),
+		Harness.Subsystem->RegisterSurfaceContact(
+			FVector(500000.0, 500000.0, 0.0), FVector(1.0, 0.0, 0.0), 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+
+	TestEqual(TEXT("Both rejections are counted"), Harness.Subsystem->GetContactsDiscardedOutsideRibbon(), 2);
+	TestEqual(TEXT("Nothing was queued"), Harness.Subsystem->GetPendingContactCount(), 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceStrokeKeepsContactsCrossingTheLateralEdge,
+	"RacetrackSurface.Stroke.KeepsContactsCrossingTheLateralEdge",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceStrokeKeepsContactsCrossingTheLateralEdge::RunTest(const FString& Parameters)
+{
+	const FHarness Harness = MakeHarness();
+
+	FSurfaceTrackContact Contact =
+		MakeTrackContact(Harness.Length() * 0.5, 0.95, RaceSpeedCentimetresPerSecond);
+	Contact.LateralOffsetAlphaPerSecond = -3.0;
+
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(Contact, FrameSeconds, Strokes);
+
+	TestEqual(TEXT("A stroke that starts off the edge and ends on the track is kept"), Strokes.Num(), 1);
+
+	if (Strokes.Num() == 1)
+	{
+		TestTrue(
+			FString::Printf(TEXT("The off-track end is left outside the buffer for the rasteriser to clip, got %.4f"),
+				Strokes[0].RegionStart.Y),
+			Strokes[0].RegionStart.Y > 1.0);
+	}
 
 	return true;
 }
@@ -158,25 +295,112 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSurfaceStrokeConvertsWidthAndIntensity::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
-	const FSurfaceRegion& Region = Subsystem->GetRegion();
+	const FHarness Harness = MakeHarness();
 
-	FSurfaceContact Contact = MakeContact(FVector::ZeroVector, FVector(1.0, 0.0, 0.0));
+	FSurfaceTrackContact Contact = MakeTrackContact(Harness.Length() * 0.5, 0.0, 1.0);
 	Contact.ContactWidth = 20.0f;
 	Contact.SlipAmount = 1.7f;
 
-	FSurfaceBrushStroke Stroke;
-	Subsystem->BuildStroke(Contact, FrameSeconds, Stroke);
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(Contact, FrameSeconds, Strokes);
 
-	const float ExpectedWidthInTexels = static_cast<float>(20.0 / Region.CentimetresPerTexel());
+	if (Strokes.Num() != 1)
+	{
+		AddError(TEXT("Expected a single stroke."));
+		return false;
+	}
+
+	const float ExpectedWidthInTexels =
+		static_cast<float>(20.0 / Harness.Ribbon.CentimetresPerTexel);
 
 	TestTrue(
-		TEXT("Contact width converts from centimetres to texels"),
-		FMath::IsNearlyEqual(Stroke.WidthInTexels, ExpectedWidthInTexels, UE_KINDA_SMALL_NUMBER));
+		FString::Printf(TEXT("Contact width converts from centimetres to texels, got %.4f"), Strokes[0].WidthInTexels),
+		FMath::IsNearlyEqual(Strokes[0].WidthInTexels, ExpectedWidthInTexels, UE_KINDA_SMALL_NUMBER));
 
 	TestTrue(
 		TEXT("Slip amount above one is clamped"),
-		FMath::IsNearlyEqual(Stroke.Intensity, 1.0f, UE_KINDA_SMALL_NUMBER));
+		FMath::IsNearlyEqual(Strokes[0].Intensity, 1.0f, UE_KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceStrokeWorldAndTrackSpacePathsAgree,
+	"RacetrackSurface.Stroke.WorldAndTrackSpacePathsAgree",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceStrokeWorldAndTrackSpacePathsAgree::RunTest(const FString& Parameters)
+{
+	const FHarness Harness = MakeHarness();
+
+	const double Distance = Harness.Length() * 0.4;
+	const double Alpha = 0.3;
+
+	FSurfaceTrackCoordinate Coordinate;
+	Coordinate.DistanceAlongCentreline = Distance;
+	Coordinate.LateralOffsetAlpha = Alpha;
+
+	const FVector WorldPosition =
+		RacetrackSurfaceTrackSpace::TrackToWorld(*Harness.Circuit, HarnessTrackWidth, Coordinate);
+	const FVector WorldDirection = Harness.Circuit->GetDirectionAtDistanceAlongSpline(
+		static_cast<float>(Distance), ESplineCoordinateSpace::World);
+
+	TestTrue(
+		TEXT("The world-space contact is accepted"),
+		Harness.Subsystem->RegisterSurfaceContact(
+			WorldPosition,
+			WorldDirection * RaceSpeedCentimetresPerSecond,
+			0.5f,
+			20.0f,
+			EAccumulationChannel::SkidMark));
+
+	if (Harness.Subsystem->GetPendingContactCount() != 1)
+	{
+		AddError(TEXT("The world-space path queued nothing."));
+		return false;
+	}
+
+	const FSurfaceTrackContact Converted = Harness.Subsystem->GetPendingContacts()[0];
+
+	AddInfo(FString::Printf(
+		TEXT("World path resolved to distance %.2f cm, alpha %.5f, %.2f cm/s along, %.6f alpha/s across"),
+		Converted.Coordinate.DistanceAlongCentreline,
+		Converted.Coordinate.LateralOffsetAlpha,
+		Converted.CentimetresPerSecondAlongCentreline,
+		Converted.LateralOffsetAlphaPerSecond));
+
+	TestTrue(
+		FString::Printf(TEXT("The world path recovers the distance, got %.2f against %.2f"),
+			Converted.Coordinate.DistanceAlongCentreline, Distance),
+		FMath::Abs(Converted.Coordinate.DistanceAlongCentreline - Distance) < 1.0);
+
+	TestTrue(
+		FString::Printf(TEXT("The world path recovers the lateral offset, got %.5f against %.5f"),
+			Converted.Coordinate.LateralOffsetAlpha, Alpha),
+		FMath::Abs(Converted.Coordinate.LateralOffsetAlpha - Alpha) < 0.001);
+
+	TestTrue(
+		FString::Printf(TEXT("The world path recovers the speed along the centreline, got %.2f against %.2f"),
+			Converted.CentimetresPerSecondAlongCentreline, RaceSpeedCentimetresPerSecond),
+		FMath::Abs(Converted.CentimetresPerSecondAlongCentreline - RaceSpeedCentimetresPerSecond) < 1.0);
+
+	TArray<FSurfaceBrushStroke> FromWorld;
+	TArray<FSurfaceBrushStroke> FromTrack;
+
+	Harness.Subsystem->BuildStrokes(Converted, FrameSeconds, FromWorld);
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(Distance, Alpha, RaceSpeedCentimetresPerSecond), FrameSeconds, FromTrack);
+
+	if (FromWorld.Num() != 1 || FromTrack.Num() != 1)
+	{
+		AddError(TEXT("Expected one stroke from each path."));
+		return false;
+	}
+
+	TestTrue(
+		TEXT("Both write paths place the stroke in the same place on the ribbon"),
+		FromWorld[0].RegionStart.Equals(FromTrack[0].RegionStart, 1.0e-4)
+		&& FromWorld[0].RegionEnd.Equals(FromTrack[0].RegionEnd, 1.0e-4));
 
 	return true;
 }
@@ -188,16 +412,45 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSurfaceQueueDrainsOnFlush::RunTest(const FString& Parameters)
 {
-	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem = MakeSubsystem();
+	const FHarness Harness = MakeHarness();
 
-	Subsystem->RegisterSurfaceContact(FVector::ZeroVector, FVector(1.0, 0.0, 0.0), 0.5f, 20.0f, EAccumulationChannel::SkidMark);
-	Subsystem->RegisterSurfaceContact(FVector(100.0, 0.0, 0.0), FVector(1.0, 0.0, 0.0), 0.5f, 20.0f, EAccumulationChannel::RubberBuildup);
+	Harness.Subsystem->RegisterSurfaceContactInTrackSpace(
+		0.0, 0.0, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::SkidMark);
+	Harness.Subsystem->RegisterSurfaceContactInTrackSpace(
+		100.0, 0.5, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::RubberBuildup);
 
-	TestEqual(TEXT("Both contacts are queued"), Subsystem->GetPendingContactCount(), 2);
+	TestEqual(TEXT("Both contacts are queued"), Harness.Subsystem->GetPendingContactCount(), 2);
 
-	Subsystem->ResetSurface();
+	Harness.Subsystem->ResetSurface();
 
-	TestEqual(TEXT("Reset empties the queue"), Subsystem->GetPendingContactCount(), 0);
+	TestEqual(TEXT("Reset empties the queue"), Harness.Subsystem->GetPendingContactCount(), 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceContactsNeedACentreline,
+	"RacetrackSurface.Queue.WorldContactsNeedACentreline",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceContactsNeedACentreline::RunTest(const FString& Parameters)
+{
+	const TStrongObjectPtr<USurfaceAccumulationSubsystem> Subsystem(
+		NewObject<USurfaceAccumulationSubsystem>());
+
+	TestFalse(
+		TEXT("A world-space contact without a centreline is rejected rather than queued"),
+		Subsystem->RegisterSurfaceContact(
+			FVector::ZeroVector, FVector(1.0, 0.0, 0.0), 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+
+	TestEqual(TEXT("The rejection is counted separately from an off-track one"),
+		Subsystem->GetContactsDiscardedWithoutCentreline(), 1);
+	TestEqual(TEXT("Nothing was queued"), Subsystem->GetPendingContactCount(), 0);
+
+	TestTrue(
+		TEXT("A track-space contact still works without a centreline, because it needs no conversion"),
+		Subsystem->RegisterSurfaceContactInTrackSpace(
+			100.0, 0.0, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::SkidMark));
 
 	return true;
 }

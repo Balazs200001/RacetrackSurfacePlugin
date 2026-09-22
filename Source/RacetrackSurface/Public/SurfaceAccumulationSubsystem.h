@@ -4,9 +4,10 @@
 #include "Stats/Stats.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "RacetrackSurfaceTypes.h"
-#include "SurfaceRegion.h"
+#include "SurfaceTrackRibbon.h"
 #include "SurfaceAccumulationSubsystem.generated.h"
 
+class USplineComponent;
 class USurfaceAccumulationBuffer;
 class UTextureRenderTarget2D;
 
@@ -27,21 +28,36 @@ public:
 		RETURN_QUICK_DECLARE_CYCLE_STAT(USurfaceAccumulationSubsystem, STATGROUP_Tickables);
 	}
 
-	void RegisterSurfaceContact(const FSurfaceContact& Contact);
+	void ConfigureTrackRibbon(const USplineComponent* NewCentreline, const FSurfaceTrackRibbon& NewRibbon);
 
-	void RegisterSurfaceContact(
+	const FSurfaceTrackRibbon& GetRibbon() const
+	{
+		return Ribbon;
+	}
+
+	const USplineComponent* GetCentreline() const
+	{
+		return Centreline.Get();
+	}
+
+	bool RegisterSurfaceContact(const FSurfaceContact& Contact);
+
+	bool RegisterSurfaceContact(
 		const FVector& WorldPosition,
 		const FVector& Velocity,
 		float SlipAmount,
 		float ContactWidth,
 		EAccumulationChannel Channel);
 
-	void ConfigureRegion(const FSurfaceRegion& NewRegion);
+	bool RegisterSurfaceContactInTrackSpace(const FSurfaceTrackContact& Contact);
 
-	const FSurfaceRegion& GetRegion() const
-	{
-		return Region;
-	}
+	bool RegisterSurfaceContactInTrackSpace(
+		double DistanceAlongCentreline,
+		double LateralOffsetAlpha,
+		double CentimetresPerSecondAlongCentreline,
+		float SlipAmount,
+		float ContactWidth,
+		EAccumulationChannel Channel);
 
 	void ResetSurface();
 
@@ -50,12 +66,30 @@ public:
 		return PendingContacts.Num();
 	}
 
+	const TArray<FSurfaceTrackContact>& GetPendingContacts() const
+	{
+		return PendingContacts;
+	}
+
+	int32 GetContactsDiscardedOutsideRibbon() const
+	{
+		return ContactsDiscardedOutsideRibbon;
+	}
+
+	int32 GetContactsDiscardedWithoutCentreline() const
+	{
+		return ContactsDiscardedWithoutCentreline;
+	}
+
 	const TArray<FSurfaceBrushStroke>& GetStrokesResolvedThisFrame() const
 	{
 		return StrokesResolvedThisFrame;
 	}
 
-	bool BuildStroke(const FSurfaceContact& Contact, float DeltaSeconds, FSurfaceBrushStroke& OutStroke) const;
+	void BuildStrokes(
+		const FSurfaceTrackContact& Contact,
+		float DeltaSeconds,
+		TArray<FSurfaceBrushStroke>& OutStrokes) const;
 
 	USurfaceAccumulationBuffer* GetBuffer() const
 	{
@@ -69,16 +103,28 @@ private:
 
 	bool EnsureBuffer();
 
-	void PublishRegionToMaterials();
+	void PublishRibbonToMaterials();
 
-	FSurfaceRegion Region;
+	void AppendStroke(
+		const FSurfaceTrackContact& Contact,
+		double FromDistance,
+		double FromAlpha,
+		double ToDistance,
+		double ToAlpha,
+		TArray<FSurfaceBrushStroke>& OutStrokes) const;
+
+	FSurfaceTrackRibbon Ribbon;
+
+	TWeakObjectPtr<const USplineComponent> Centreline;
 
 	UPROPERTY(Transient)
 	TObjectPtr<USurfaceAccumulationBuffer> Buffer;
 
-	TArray<FSurfaceContact> PendingContacts;
+	TArray<FSurfaceTrackContact> PendingContacts;
 
 	TArray<FSurfaceBrushStroke> StrokesResolvedThisFrame;
 
-	int32 ContactsDiscardedOutsideRegion = 0;
+	int32 ContactsDiscardedOutsideRibbon = 0;
+
+	int32 ContactsDiscardedWithoutCentreline = 0;
 };

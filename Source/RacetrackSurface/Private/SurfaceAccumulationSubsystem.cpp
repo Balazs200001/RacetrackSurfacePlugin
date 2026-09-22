@@ -1,9 +1,11 @@
 #include "SurfaceAccumulationSubsystem.h"
 
+#include "Components/SplineComponent.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "SurfaceAccumulationBuffer.h"
 #include "SurfaceAccumulationMapping.h"
+#include "SurfaceTrackSpace.h"
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
@@ -12,18 +14,17 @@ void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collect
 	Super::Initialize(Collection);
 
 	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Surface region centred at (%.1f, %.1f), %.1f cm square, %d texels, %.2f cm per texel"),
-		Region.WorldCentre.X,
-		Region.WorldCentre.Y,
-		Region.WorldSize,
-		Region.ResolutionTexels,
-		Region.CentimetresPerTexel());
+		TEXT("Surface ribbon awaiting a centreline, defaults %.1f cm of track at %.1f cm wide, %.4f cm per texel"),
+		Ribbon.TrackLength,
+		Ribbon.TrackWidth,
+		Ribbon.CentimetresPerTexel);
 }
 
 void USurfaceAccumulationSubsystem::Deinitialize()
 {
 	PendingContacts.Empty();
 	StrokesResolvedThisFrame.Empty();
+	Centreline.Reset();
 
 	if (Buffer != nullptr)
 	{
@@ -43,14 +44,14 @@ bool USurfaceAccumulationSubsystem::EnsureBuffer()
 		Buffer = NewObject<USurfaceAccumulationBuffer>(this);
 	}
 
-	if (Buffer == nullptr || !Buffer->Allocate(this, Region))
+	if (Buffer == nullptr || !Buffer->Allocate(this, Ribbon))
 	{
 		return false;
 	}
 
 	if (bFirstAllocation)
 	{
-		PublishRegionToMaterials();
+		PublishRibbonToMaterials();
 	}
 
 	return true;
@@ -61,7 +62,7 @@ UTextureRenderTarget2D* USurfaceAccumulationSubsystem::GetOrCreateAccumulationTa
 	return EnsureBuffer() ? Buffer->GetTarget() : nullptr;
 }
 
-void USurfaceAccumulationSubsystem::PublishRegionToMaterials()
+void USurfaceAccumulationSubsystem::PublishRibbonToMaterials()
 {
 	UMaterialParameterCollection* Collection = LoadObject<UMaterialParameterCollection>(
 		nullptr,
@@ -70,26 +71,10 @@ void USurfaceAccumulationSubsystem::PublishRegionToMaterials()
 	if (Collection == nullptr)
 	{
 		UE_LOG(LogRacetrackSurface, Warning,
-			TEXT("Parameter collection %s is missing, so materials cannot resolve the region or the saturation constant"),
+			TEXT("Parameter collection %s is missing, so materials cannot resolve the saturation constant"),
 			RacetrackSurfaceMapping::ParameterCollectionAssetPath);
 		return;
 	}
-
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		this,
-		Collection,
-		RacetrackSurfaceMapping::RegionCentreParameterName,
-		FLinearColor(
-			static_cast<float>(Region.WorldCentre.X),
-			static_cast<float>(Region.WorldCentre.Y),
-			0.0f,
-			0.0f));
-
-	UKismetMaterialLibrary::SetScalarParameterValue(
-		this,
-		Collection,
-		RacetrackSurfaceMapping::RegionWorldSizeParameterName,
-		static_cast<float>(Region.WorldSize));
 
 	UKismetMaterialLibrary::SetScalarParameterValue(
 		this,
@@ -98,10 +83,7 @@ void USurfaceAccumulationSubsystem::PublishRegionToMaterials()
 		RacetrackSurfaceMapping::SaturationConstant);
 
 	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Published region centre (%.1f, %.1f), world size %.1f and saturation constant %.3f to %s"),
-		Region.WorldCentre.X,
-		Region.WorldCentre.Y,
-		Region.WorldSize,
+		TEXT("Published saturation constant %.3f to %s"),
 		RacetrackSurfaceMapping::SaturationConstant,
 		*Collection->GetName());
 }
@@ -113,12 +95,82 @@ void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
 	FlushPendingContacts(DeltaTime);
 }
 
-void USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact& Contact)
+void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
+	const USplineComponent* NewCentreline,
+	const FSurfaceTrackRibbon& NewRibbon)
 {
-	PendingContacts.Add(Contact);
+	Centreline = NewCentreline;
+	Ribbon = NewRibbon;
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Surface ribbon configured: %.1f cm of track at %.1f cm wide, %.4f cm per texel, %d x %d texels, %s"),
+		Ribbon.TrackLength,
+		Ribbon.TrackWidth,
+		Ribbon.CentimetresPerTexel,
+		Ribbon.AlongTrackTexels(),
+		Ribbon.AcrossTrackTexels(),
+		Ribbon.bClosedLoop ? TEXT("closed loop") : TEXT("open ended"));
+
+	if (NewCentreline == nullptr)
+	{
+		UE_LOG(LogRacetrackSurface, Warning,
+			TEXT("Surface ribbon configured without a centreline, so world-space contacts cannot be placed"));
+	}
+
+	if (!Ribbon.FitsUnfolded())
+	{
+		UE_LOG(LogRacetrackSurface, Error,
+			TEXT("Surface ribbon needs %d texels along the track but a single row holds %d. ")
+			TEXT("Folding into rows is not implemented, so this ribbon cannot be allocated."),
+			Ribbon.AlongTrackTexels(),
+			FSurfaceTrackRibbon::MaximumTexelsPerRow);
+	}
+
+	PublishRibbonToMaterials();
 }
 
-void USurfaceAccumulationSubsystem::RegisterSurfaceContact(
+bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact& Contact)
+{
+	const USplineComponent* Spline = Centreline.Get();
+
+	if (Spline == nullptr)
+	{
+		++ContactsDiscardedWithoutCentreline;
+		return false;
+	}
+
+	FSurfaceTrackContact TrackContact;
+
+	const ETrackSpaceStatus Status = RacetrackSurfaceTrackSpace::WorldToTrack(
+		*Spline,
+		Ribbon.TrackWidth,
+		Contact.WorldPosition,
+		TrackContact.Coordinate);
+
+	if (Status != ETrackSpaceStatus::Valid)
+	{
+		++ContactsDiscardedOutsideRibbon;
+		return false;
+	}
+
+	RacetrackSurfaceTrackSpace::WorldVelocityToTrackRates(
+		*Spline,
+		Ribbon.TrackWidth,
+		TrackContact.Coordinate,
+		Contact.Velocity,
+		TrackContact.CentimetresPerSecondAlongCentreline,
+		TrackContact.LateralOffsetAlphaPerSecond);
+
+	TrackContact.SlipAmount = Contact.SlipAmount;
+	TrackContact.ContactWidth = Contact.ContactWidth;
+	TrackContact.Channel = Contact.Channel;
+
+	PendingContacts.Add(TrackContact);
+
+	return true;
+}
+
+bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(
 	const FVector& WorldPosition,
 	const FVector& Velocity,
 	float SlipAmount,
@@ -132,27 +184,47 @@ void USurfaceAccumulationSubsystem::RegisterSurfaceContact(
 	Contact.ContactWidth = ContactWidth;
 	Contact.Channel = Channel;
 
-	RegisterSurfaceContact(Contact);
+	return RegisterSurfaceContact(Contact);
 }
 
-void USurfaceAccumulationSubsystem::ConfigureRegion(const FSurfaceRegion& NewRegion)
+bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(const FSurfaceTrackContact& Contact)
 {
-	Region = NewRegion;
+	if (!Ribbon.ContainsLateralOffset(Contact.Coordinate.LateralOffsetAlpha))
+	{
+		++ContactsDiscardedOutsideRibbon;
+		return false;
+	}
 
-	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Surface region reconfigured to %.1f cm square at %d texels, %.2f cm per texel"),
-		Region.WorldSize,
-		Region.ResolutionTexels,
-		Region.CentimetresPerTexel());
+	PendingContacts.Add(Contact);
 
-	PublishRegionToMaterials();
+	return true;
+}
+
+bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(
+	double DistanceAlongCentreline,
+	double LateralOffsetAlpha,
+	double CentimetresPerSecondAlongCentreline,
+	float SlipAmount,
+	float ContactWidth,
+	EAccumulationChannel Channel)
+{
+	FSurfaceTrackContact Contact;
+	Contact.Coordinate.DistanceAlongCentreline = DistanceAlongCentreline;
+	Contact.Coordinate.LateralOffsetAlpha = LateralOffsetAlpha;
+	Contact.CentimetresPerSecondAlongCentreline = CentimetresPerSecondAlongCentreline;
+	Contact.SlipAmount = SlipAmount;
+	Contact.ContactWidth = ContactWidth;
+	Contact.Channel = Channel;
+
+	return RegisterSurfaceContactInTrackSpace(Contact);
 }
 
 void USurfaceAccumulationSubsystem::ResetSurface()
 {
 	PendingContacts.Reset();
 	StrokesResolvedThisFrame.Reset();
-	ContactsDiscardedOutsideRegion = 0;
+	ContactsDiscardedOutsideRibbon = 0;
+	ContactsDiscardedWithoutCentreline = 0;
 
 	if (Buffer != nullptr)
 	{
@@ -160,45 +232,97 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 	}
 }
 
-bool USurfaceAccumulationSubsystem::BuildStroke(
-	const FSurfaceContact& Contact,
-	float DeltaSeconds,
-	FSurfaceBrushStroke& OutStroke) const
+void USurfaceAccumulationSubsystem::AppendStroke(
+	const FSurfaceTrackContact& Contact,
+	double FromDistance,
+	double FromAlpha,
+	double ToDistance,
+	double ToAlpha,
+	TArray<FSurfaceBrushStroke>& OutStrokes) const
 {
-	const FVector SweptStart = Contact.WorldPosition - Contact.Velocity * DeltaSeconds;
-
-	const FVector2D NormalisedStart = Region.WorldToNormalised(SweptStart);
-	const FVector2D NormalisedEnd = Region.WorldToNormalised(Contact.WorldPosition);
-
-	if (!Region.ContainsNormalised(NormalisedStart) && !Region.ContainsNormalised(NormalisedEnd))
+	if (!Ribbon.ContainsLateralOffset(FromAlpha) && !Ribbon.ContainsLateralOffset(ToAlpha))
 	{
-		return false;
+		return;
 	}
 
-	OutStroke.RegionStart = NormalisedStart;
-	OutStroke.RegionEnd = NormalisedEnd;
-	OutStroke.WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(Contact.ContactWidth));
-	OutStroke.Intensity = FMath::Clamp(Contact.SlipAmount, 0.0f, 1.0f);
-	OutStroke.Channel = Contact.Channel;
+	FSurfaceBrushStroke Stroke;
 
-	return true;
+	Stroke.RegionStart = FVector2D(
+		Ribbon.NormalisedAlongTrack(FromDistance),
+		FSurfaceTrackRibbon::NormalisedAcrossTrack(FromAlpha));
+
+	Stroke.RegionEnd = FVector2D(
+		Ribbon.NormalisedAlongTrack(ToDistance),
+		FSurfaceTrackRibbon::NormalisedAcrossTrack(ToAlpha));
+
+	Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(Contact.ContactWidth));
+	Stroke.Intensity = FMath::Clamp(Contact.SlipAmount, 0.0f, 1.0f);
+	Stroke.Channel = Contact.Channel;
+
+	OutStrokes.Add(Stroke);
+}
+
+void USurfaceAccumulationSubsystem::BuildStrokes(
+	const FSurfaceTrackContact& Contact,
+	float DeltaSeconds,
+	TArray<FSurfaceBrushStroke>& OutStrokes) const
+{
+	const double Length = FMath::Max(Ribbon.TrackLength, UE_DOUBLE_SMALL_NUMBER);
+
+	const double EndDistance = Ribbon.WrapDistance(Contact.Coordinate.DistanceAlongCentreline);
+	const double EndAlpha = Contact.Coordinate.LateralOffsetAlpha;
+
+	const double Travel = FMath::Clamp(
+		Contact.CentimetresPerSecondAlongCentreline * DeltaSeconds,
+		-Length,
+		Length);
+
+	const double UnwrappedStartDistance = EndDistance - Travel;
+	const double StartAlpha = EndAlpha - Contact.LateralOffsetAlphaPerSecond * DeltaSeconds;
+
+	const bool bCrossesSeam = Ribbon.bClosedLoop
+		&& (UnwrappedStartDistance < 0.0 || UnwrappedStartDistance > Length);
+
+	if (!bCrossesSeam)
+	{
+		AppendStroke(
+			Contact,
+			FMath::Clamp(UnwrappedStartDistance, 0.0, Length),
+			StartAlpha,
+			EndDistance,
+			EndAlpha,
+			OutStrokes);
+
+		return;
+	}
+
+	const double SeamDistance = Travel > 0.0 ? 0.0 : Length;
+
+	const double SeamFraction = FMath::Abs(Travel) > UE_DOUBLE_SMALL_NUMBER
+		? FMath::Clamp((SeamDistance - UnwrappedStartDistance) / Travel, 0.0, 1.0)
+		: 0.0;
+
+	const double SeamAlpha = StartAlpha + (EndAlpha - StartAlpha) * SeamFraction;
+
+	if (Travel > 0.0)
+	{
+		AppendStroke(Contact, UnwrappedStartDistance + Length, StartAlpha, Length, SeamAlpha, OutStrokes);
+		AppendStroke(Contact, 0.0, SeamAlpha, EndDistance, EndAlpha, OutStrokes);
+	}
+	else
+	{
+		AppendStroke(Contact, UnwrappedStartDistance - Length, StartAlpha, 0.0, SeamAlpha, OutStrokes);
+		AppendStroke(Contact, Length, SeamAlpha, EndDistance, EndAlpha, OutStrokes);
+	}
 }
 
 void USurfaceAccumulationSubsystem::FlushPendingContacts(float DeltaSeconds)
 {
 	StrokesResolvedThisFrame.Reset(PendingContacts.Num());
 
-	for (const FSurfaceContact& Contact : PendingContacts)
+	for (const FSurfaceTrackContact& Contact : PendingContacts)
 	{
-		FSurfaceBrushStroke Stroke;
-		if (BuildStroke(Contact, DeltaSeconds, Stroke))
-		{
-			StrokesResolvedThisFrame.Add(Stroke);
-		}
-		else
-		{
-			++ContactsDiscardedOutsideRegion;
-		}
+		BuildStrokes(Contact, DeltaSeconds, StrokesResolvedThisFrame);
 	}
 
 	PendingContacts.Reset();

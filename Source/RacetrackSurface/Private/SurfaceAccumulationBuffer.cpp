@@ -8,6 +8,7 @@
 #include "PixelFormat.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "RHIGlobals.h"
 #include "RHIResources.h"
 #include "RenderingThread.h"
 #include "SurfaceAccumulationSubsystem.h"
@@ -173,16 +174,34 @@ FLinearColor USurfaceAccumulationBuffer::ChannelMask(EAccumulationChannel Channe
 	}
 }
 
-bool USurfaceAccumulationBuffer::Allocate(UObject* WorldContext, const FSurfaceRegion& Region, ETextureRenderTargetFormat Format)
+bool USurfaceAccumulationBuffer::Allocate(
+	UObject* WorldContext,
+	int32 Width,
+	int32 Height,
+	ETextureRenderTargetFormat Format)
 {
 	if (WorldContext == nullptr)
 	{
 		return false;
 	}
 
-	const int32 Resolution = FMath::Max(Region.ResolutionTexels, 1);
+	const int32 ClampedWidth = FMath::Max(Width, 1);
+	const int32 ClampedHeight = FMath::Max(Height, 1);
+	const int32 MaximumDimension = static_cast<int32>(GetMax2DTextureDimension());
 
-	if (Target != nullptr && AllocatedResolution == Resolution && AllocatedFormat == Format)
+	if (ClampedWidth > MaximumDimension || ClampedHeight > MaximumDimension)
+	{
+		UE_LOG(LogRacetrackSurface, Error,
+			TEXT("Cannot allocate a %d x %d accumulation buffer: this RHI allows at most %d in either dimension. ")
+			TEXT("A ribbon this long has to be folded into rows, which is not implemented, or drawn at a coarser texel density."),
+			ClampedWidth,
+			ClampedHeight,
+			MaximumDimension);
+
+		return false;
+	}
+
+	if (Target != nullptr && AllocatedWidth == ClampedWidth && AllocatedHeight == ClampedHeight && AllocatedFormat == Format)
 	{
 		return true;
 	}
@@ -191,8 +210,8 @@ bool USurfaceAccumulationBuffer::Allocate(UObject* WorldContext, const FSurfaceR
 
 	Target = UKismetRenderingLibrary::CreateRenderTarget2D(
 		WorldContext,
-		Resolution,
-		Resolution,
+		ClampedWidth,
+		ClampedHeight,
 		Format,
 		FLinearColor::Black,
 		false,
@@ -203,16 +222,25 @@ bool USurfaceAccumulationBuffer::Allocate(UObject* WorldContext, const FSurfaceR
 		return false;
 	}
 
-	AllocatedResolution = Resolution;
+	AllocatedWidth = ClampedWidth;
+	AllocatedHeight = ClampedHeight;
 	AllocatedFormat = Format;
 
 	UE_LOG(LogRacetrackSurface, Log,
 		TEXT("Accumulation buffer allocated at %d x %d, %lld bytes"),
-		AllocatedResolution,
-		AllocatedResolution,
+		AllocatedWidth,
+		AllocatedHeight,
 		GetAllocatedBytes());
 
 	return true;
+}
+
+bool USurfaceAccumulationBuffer::Allocate(
+	UObject* WorldContext,
+	const FSurfaceTrackRibbon& Ribbon,
+	ETextureRenderTargetFormat Format)
+{
+	return Allocate(WorldContext, Ribbon.AlongTrackTexels(), Ribbon.AcrossTrackTexels(), Format);
 }
 
 void USurfaceAccumulationBuffer::Release()
@@ -223,7 +251,8 @@ void USurfaceAccumulationBuffer::Release()
 		Target = nullptr;
 	}
 
-	AllocatedResolution = 0;
+	AllocatedWidth = 0;
+	AllocatedHeight = 0;
 }
 
 int64 USurfaceAccumulationBuffer::GetAllocatedBytes() const
@@ -236,8 +265,8 @@ int64 USurfaceAccumulationBuffer::GetAllocatedBytes() const
 	const EPixelFormat PixelFormat = GetPixelFormatFromRenderTargetFormat(AllocatedFormat);
 
 	return static_cast<int64>(GPixelFormats[PixelFormat].BlockBytes)
-		* static_cast<int64>(AllocatedResolution)
-		* static_cast<int64>(AllocatedResolution);
+		* static_cast<int64>(AllocatedWidth)
+		* static_cast<int64>(AllocatedHeight);
 }
 
 void USurfaceAccumulationBuffer::EnsureBrush()

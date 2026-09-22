@@ -34,22 +34,46 @@ void URacetrackSurfaceBlueprintLibrary::RegisterSurfaceContact(
 	}
 }
 
-void URacetrackSurfaceBlueprintLibrary::ConfigureSurfaceRegion(const UObject* WorldContextObject, const FSurfaceRegion& Region)
+void URacetrackSurfaceBlueprintLibrary::RegisterSurfaceContactInTrackSpace(
+	const UObject* WorldContextObject,
+	double DistanceAlongCentreline,
+	double LateralOffsetAlpha,
+	double CentimetresPerSecondAlongCentreline,
+	float SlipAmount,
+	float ContactWidth,
+	EAccumulationChannel Channel)
 {
 	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
 	{
-		Subsystem->ConfigureRegion(Region);
+		Subsystem->RegisterSurfaceContactInTrackSpace(
+			DistanceAlongCentreline,
+			LateralOffsetAlpha,
+			CentimetresPerSecondAlongCentreline,
+			SlipAmount,
+			ContactWidth,
+			Channel);
 	}
 }
 
-FSurfaceRegion URacetrackSurfaceBlueprintLibrary::GetSurfaceRegion(const UObject* WorldContextObject)
+void URacetrackSurfaceBlueprintLibrary::ConfigureTrackRibbon(
+	const UObject* WorldContextObject,
+	USplineComponent* Centreline,
+	const FSurfaceTrackRibbon& Ribbon)
+{
+	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
+	{
+		Subsystem->ConfigureTrackRibbon(Centreline, Ribbon);
+	}
+}
+
+FSurfaceTrackRibbon URacetrackSurfaceBlueprintLibrary::GetTrackRibbon(const UObject* WorldContextObject)
 {
 	if (const USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
 	{
-		return Subsystem->GetRegion();
+		return Subsystem->GetRibbon();
 	}
 
-	return FSurfaceRegion();
+	return FSurfaceTrackRibbon();
 }
 
 void URacetrackSurfaceBlueprintLibrary::ResetSurface(const UObject* WorldContextObject)

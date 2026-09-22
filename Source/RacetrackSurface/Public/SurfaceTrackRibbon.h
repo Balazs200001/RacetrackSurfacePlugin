@@ -102,11 +102,21 @@ struct FSurfaceTrackRibbon
 			|| (Coordinate.DistanceAlongCentreline >= 0.0 && Coordinate.DistanceAlongCentreline <= TrackLength);
 	}
 
+	double NormalisedAlongTrack(double DistanceAlongCentreline) const
+	{
+		return DistanceAlongCentreline / FMath::Max(TrackLength, UE_DOUBLE_SMALL_NUMBER);
+	}
+
+	static double NormalisedAcrossTrack(double LateralOffsetAlpha)
+	{
+		return LateralOffsetAlpha * 0.5 + 0.5;
+	}
+
 	FVector2D TrackToNormalised(const FSurfaceTrackCoordinate& Coordinate) const
 	{
 		return FVector2D(
-			WrapDistance(Coordinate.DistanceAlongCentreline) / FMath::Max(TrackLength, UE_DOUBLE_SMALL_NUMBER),
-			Coordinate.LateralOffsetAlpha * 0.5 + 0.5);
+			NormalisedAlongTrack(WrapDistance(Coordinate.DistanceAlongCentreline)),
+			NormalisedAcrossTrack(Coordinate.LateralOffsetAlpha));
 	}
 
 	double WorldDistanceToTexels(double WorldDistance) const

@@ -5,13 +5,15 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "UObject/StrongObjectPtr.h"
-#include "SurfaceRegion.h"
+#include "SurfaceTrackRibbon.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace RacetrackSurfaceTest
 {
 	constexpr double RaceSpeedCentimetresPerSecond = 5500.0;
+
+	constexpr double HarnessTrackWidth = 1200.0;
 
 	inline TStrongObjectPtr<USplineComponent> MakeSplineFromPoints(const TArray<FVector>& Points, bool bClosedLoop)
 	{
@@ -44,13 +46,26 @@ namespace RacetrackSurfaceTest
 		return MakeSplineFromPoints(Points, true);
 	}
 
-	inline FSurfaceRegion MakeTestRegion()
+	inline TStrongObjectPtr<USplineComponent> MakeTestCircuit()
 	{
-		FSurfaceRegion Region;
-		Region.WorldCentre = FVector2D::ZeroVector;
-		Region.WorldSize = 20000.0;
-		Region.ResolutionTexels = 2048;
-		return Region;
+		return MakeClosedCircleSpline(4775.0, 16);
+	}
+
+	inline FSurfaceTrackRibbon MakeTestRibbon(const USplineComponent& Centreline)
+	{
+		FSurfaceTrackRibbon Ribbon;
+		Ribbon.TrackLength = Centreline.GetSplineLength();
+		Ribbon.TrackWidth = HarnessTrackWidth;
+		Ribbon.bClosedLoop = Centreline.IsClosedLoop();
+		return Ribbon;
+	}
+
+	inline FSurfaceTrackRibbon MakeSquareTestRibbon(int32 Resolution)
+	{
+		FSurfaceTrackRibbon Ribbon;
+		Ribbon.TrackLength = Resolution * Ribbon.CentimetresPerTexel;
+		Ribbon.TrackWidth = Resolution * Ribbon.CentimetresPerTexel;
+		return Ribbon;
 	}
 
 	inline UWorld* FindRenderableWorld()

@@ -10,13 +10,15 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 using RacetrackSurfaceTest::FindRenderableWorld;
+using RacetrackSurfaceTest::MakeTestCircuit;
+using RacetrackSurfaceTest::MakeTestRibbon;
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FSurfacePublishesRegionAndSaturationToMaterials,
-	"RacetrackSurface.Materials.PublishesRegionAndSaturation",
+	FSurfacePublishesSaturationToMaterials,
+	"RacetrackSurface.Materials.PublishesSaturation",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
-bool FSurfacePublishesRegionAndSaturationToMaterials::RunTest(const FString& Parameters)
+bool FSurfacePublishesSaturationToMaterials::RunTest(const FString& Parameters)
 {
 	UWorld* World = FindRenderableWorld();
 
@@ -46,29 +48,12 @@ bool FSurfacePublishesRegionAndSaturationToMaterials::RunTest(const FString& Par
 		return false;
 	}
 
-	FSurfaceRegion Region = RacetrackSurfaceTest::MakeTestRegion();
-	Region.WorldCentre = FVector2D(1234.5, -6789.0);
-	Region.WorldSize = 30000.0;
+	UKismetMaterialLibrary::SetScalarParameterValue(
+		World, Collection, RacetrackSurfaceMapping::SaturationConstantParameterName, 0.0f);
 
-	Subsystem->ConfigureRegion(Region);
+	const TStrongObjectPtr<USplineComponent> Circuit = MakeTestCircuit();
 
-	const FLinearColor PublishedCentre = UKismetMaterialLibrary::GetVectorParameterValue(
-		World, Collection, RacetrackSurfaceMapping::RegionCentreParameterName);
-
-	TestTrue(
-		TEXT("Region centre X reaches the parameter collection"),
-		FMath::IsNearlyEqual(PublishedCentre.R, static_cast<float>(Region.WorldCentre.X), 0.01f));
-
-	TestTrue(
-		TEXT("Region centre Y reaches the parameter collection"),
-		FMath::IsNearlyEqual(PublishedCentre.G, static_cast<float>(Region.WorldCentre.Y), 0.01f));
-
-	const float PublishedWorldSize = UKismetMaterialLibrary::GetScalarParameterValue(
-		World, Collection, RacetrackSurfaceMapping::RegionWorldSizeParameterName);
-
-	TestTrue(
-		TEXT("Region world size reaches the parameter collection"),
-		FMath::IsNearlyEqual(PublishedWorldSize, static_cast<float>(Region.WorldSize), 0.01f));
+	Subsystem->ConfigureTrackRibbon(Circuit.Get(), MakeTestRibbon(*Circuit));
 
 	const float PublishedSaturationConstant = UKismetMaterialLibrary::GetScalarParameterValue(
 		World, Collection, RacetrackSurfaceMapping::SaturationConstantParameterName);
@@ -77,6 +62,14 @@ bool FSurfacePublishesRegionAndSaturationToMaterials::RunTest(const FString& Par
 		TEXT("The saturation constant reaches the parameter collection unchanged"),
 		PublishedSaturationConstant,
 		RacetrackSurfaceMapping::SaturationConstant);
+
+	TestTrue(
+		TEXT("The subsystem holds the centreline it was configured with"),
+		Subsystem->GetCentreline() == Circuit.Get());
+
+	TestTrue(
+		TEXT("The subsystem holds the ribbon it was configured with"),
+		FMath::IsNearlyEqual(Subsystem->GetRibbon().TrackLength, Circuit->GetSplineLength(), 1.0));
 
 	return true;
 }

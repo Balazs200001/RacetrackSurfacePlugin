@@ -3,9 +3,10 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "RacetrackSurfaceTypes.h"
-#include "SurfaceRegion.h"
+#include "SurfaceTrackRibbon.h"
 #include "RacetrackSurfaceBlueprintLibrary.generated.h"
 
+class USplineComponent;
 class USurfaceAccumulationSubsystem;
 class UTextureRenderTarget2D;
 
@@ -26,12 +27,26 @@ public:
 		EAccumulationChannel Channel = EAccumulationChannel::SkidMark);
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject", AdvancedDisplay = "ContactWidth"))
+	static void RegisterSurfaceContactInTrackSpace(
+		const UObject* WorldContextObject,
+		double DistanceAlongCentreline,
+		double LateralOffsetAlpha,
+		double CentimetresPerSecondAlongCentreline,
+		float SlipAmount,
+		float ContactWidth = 20.0f,
+		EAccumulationChannel Channel = EAccumulationChannel::SkidMark);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
-	static void ConfigureSurfaceRegion(const UObject* WorldContextObject, const FSurfaceRegion& Region);
+	static void ConfigureTrackRibbon(
+		const UObject* WorldContextObject,
+		USplineComponent* Centreline,
+		const FSurfaceTrackRibbon& Ribbon);
 
 	UFUNCTION(BlueprintPure, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
-	static FSurfaceRegion GetSurfaceRegion(const UObject* WorldContextObject);
+	static FSurfaceTrackRibbon GetTrackRibbon(const UObject* WorldContextObject);
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))

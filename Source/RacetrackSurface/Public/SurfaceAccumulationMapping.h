@@ -15,8 +15,6 @@ namespace RacetrackSurfaceMapping
 		TEXT("/RacetrackSurface/Materials/MPC_RacetrackSurface.MPC_RacetrackSurface");
 
 	static constexpr const TCHAR* SaturationConstantParameterName = TEXT("SaturationConstant");
-	static constexpr const TCHAR* RegionCentreParameterName = TEXT("RegionCentre");
-	static constexpr const TCHAR* RegionWorldSizeParameterName = TEXT("RegionWorldSize");
 
 	static constexpr const TCHAR* AccumulationTargetParameterName = TEXT("AccumulationTarget");
 }

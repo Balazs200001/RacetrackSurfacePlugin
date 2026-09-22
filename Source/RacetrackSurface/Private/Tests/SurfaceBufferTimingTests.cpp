@@ -13,6 +13,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 using RacetrackSurfaceTest::FindRenderableWorld;
+using RacetrackSurfaceTest::MakeSquareTestRibbon;
 using RacetrackSurfaceTest::RaceSpeedCentimetresPerSecond;
 using RacetrackSurfaceTest::SampleGpuWork;
 using RacetrackSurfaceTest::TimingSampleCount;
@@ -22,11 +23,11 @@ namespace
 	constexpr double TargetFrameHertz = 60.0;
 	constexpr double GateBudgetMilliseconds = 0.5;
 
-	TArray<FSurfaceBrushStroke> MakeContactStrokes(const FSurfaceRegion& Region, int32 Count)
+	TArray<FSurfaceBrushStroke> MakeContactStrokes(const FSurfaceTrackRibbon& Ribbon, int32 Count)
 	{
 		const double FrameTravel = RaceSpeedCentimetresPerSecond / TargetFrameHertz;
-		const double NormalisedLength = Region.WorldDistanceToNormalised(FrameTravel);
-		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(20.0));
+		const double NormalisedLength = Ribbon.NormalisedAlongTrack(FrameTravel);
+		const float WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(20.0));
 
 		TArray<FSurfaceBrushStroke> Strokes;
 		Strokes.Reserve(Count);
@@ -48,11 +49,11 @@ namespace
 		return Strokes;
 	}
 
-	TArray<FSurfaceBrushStroke> MakeFannedContactStrokes(const FSurfaceRegion& Region, int32 Count)
+	TArray<FSurfaceBrushStroke> MakeFannedContactStrokes(const FSurfaceTrackRibbon& Ribbon, int32 Count)
 	{
 		const double FrameTravel = RaceSpeedCentimetresPerSecond / TargetFrameHertz;
-		const double NormalisedLength = Region.WorldDistanceToNormalised(FrameTravel);
-		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(20.0));
+		const double NormalisedLength = Ribbon.NormalisedAlongTrack(FrameTravel);
+		const float WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(20.0));
 
 		TArray<FSurfaceBrushStroke> Strokes;
 		Strokes.Reserve(Count);
@@ -105,20 +106,20 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FSurfaceRegion Region = RacetrackSurfaceTest::MakeTestRegion();
+	const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(2048);
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, Region, RTF_RGBA8))
+	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA8))
 	{
 		AddError(TEXT("Failed to allocate the accumulation buffer."));
 		return false;
 	}
 
-	const TArray<FSurfaceBrushStroke> SingleContact = MakeContactStrokes(Region, 1);
-	const TArray<FSurfaceBrushStroke> FourContacts = MakeContactStrokes(Region, 4);
-	const TArray<FSurfaceBrushStroke> EightyContacts = MakeContactStrokes(Region, 80);
-	const TArray<FSurfaceBrushStroke> EightyFannedContacts = MakeFannedContactStrokes(Region, 80);
+	const TArray<FSurfaceBrushStroke> SingleContact = MakeContactStrokes(Ribbon, 1);
+	const TArray<FSurfaceBrushStroke> FourContacts = MakeContactStrokes(Ribbon, 4);
+	const TArray<FSurfaceBrushStroke> EightyContacts = MakeContactStrokes(Ribbon, 80);
+	const TArray<FSurfaceBrushStroke> EightyFannedContacts = MakeFannedContactStrokes(Ribbon, 80);
 
 	Buffer->PaintStrokes(World, FourContacts);
 	Buffer->ApplyDecay(World, 0.99f);
@@ -151,10 +152,10 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	AddInfo(FString::Printf(TEXT("Region %.0f cm square at %d texels, %.2f cm per texel, %lld bytes"),
-		Region.WorldSize,
-		Region.ResolutionTexels,
-		Region.CentimetresPerTexel(),
+	AddInfo(FString::Printf(TEXT("Ribbon %.0f cm square at %d texels, %.2f cm per texel, %lld bytes"),
+		Ribbon.TrackLength,
+		Ribbon.AlongTrackTexels(),
+		Ribbon.CentimetresPerTexel,
 		Buffer->GetAllocatedBytes()));
 
 	AddInfo(FString::Printf(TEXT("Samples %d, stroke length %.1f cm at %.0f Hz"),

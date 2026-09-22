@@ -19,8 +19,7 @@ using RacetrackSurfaceTest::SampleGpuWork;
 
 namespace
 {
-	constexpr double BrakingZoneMetres = 200.0;
-	constexpr double FullCircuitMetres = 1500.0;
+	constexpr double CarriedOverCentimetresPerTexel = 9.765625;
 
 	struct FFormatCandidate
 	{
@@ -37,18 +36,13 @@ namespace
 
 	const int32 ResolutionCandidates[] = { 1024, 2048, 4096 };
 
-	FSurfaceRegion MakeRegion(int32 Resolution)
-	{
-		FSurfaceRegion Region = RacetrackSurfaceTest::MakeTestRegion();
-		Region.ResolutionTexels = Resolution;
-		return Region;
-	}
+	using RacetrackSurfaceTest::MakeSquareTestRibbon;
 
-	TArray<FSurfaceBrushStroke> MakeStrokes(const FSurfaceRegion& Region, int32 Count, float Intensity)
+	TArray<FSurfaceBrushStroke> MakeStrokes(const FSurfaceTrackRibbon& Ribbon, int32 Count, float Intensity)
 	{
 		const double FrameTravel = RacetrackSurfaceTest::RaceSpeedCentimetresPerSecond / 60.0;
-		const double NormalisedLength = Region.WorldDistanceToNormalised(FrameTravel);
-		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(20.0));
+		const double NormalisedLength = Ribbon.NormalisedAlongTrack(FrameTravel);
+		const float WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(20.0));
 
 		TArray<FSurfaceBrushStroke> Strokes;
 		Strokes.Reserve(Count);
@@ -69,11 +63,11 @@ namespace
 	}
 
 	TArray<FSurfaceBrushStroke> MakeCentredStroke(
-		const FSurfaceRegion& Region,
+		const FSurfaceTrackRibbon& Ribbon,
 		float Intensity,
 		EAccumulationChannel Channel)
 	{
-		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(200.0));
+		const float WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(200.0));
 
 		FSurfaceBrushStroke Stroke;
 		Stroke.RegionStart = FVector2D(0.4, 0.5);
@@ -109,9 +103,9 @@ namespace
 		return Raw;
 	}
 
-	TArray<FSurfaceBrushStroke> MakeOverlappingFannedStrokes(const FSurfaceRegion& Region, int32 Count)
+	TArray<FSurfaceBrushStroke> MakeOverlappingFannedStrokes(const FSurfaceTrackRibbon& Ribbon, int32 Count)
 	{
-		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(400.0));
+		const float WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(400.0));
 		const double HalfLength = 0.15;
 
 		TArray<FSurfaceBrushStroke> Strokes;
@@ -189,24 +183,24 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	AddInfo(TEXT("Resolution | Format | Bytes | MiB | cm/texel at 200 m | cm/texel at 1500 m | Paint 4 | Decay"));
+	AddInfo(TEXT("Resolution | Format | Bytes | MiB | Ribbon metres along | Ribbon metres across | Paint 4 | Decay"));
 
 	for (const int32 Resolution : ResolutionCandidates)
 	{
 		for (const FFormatCandidate& Candidate : FormatCandidates)
 		{
-			const FSurfaceRegion Region = MakeRegion(Resolution);
+			const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(Resolution);
 
 			TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-			if (!Buffer->Allocate(World, Region, Candidate.Format))
+			if (!Buffer->Allocate(World, Ribbon, Candidate.Format))
 			{
 				AddError(FString::Printf(
 					TEXT("Failed to allocate %d square in %s"), Resolution, Candidate.Name));
 				continue;
 			}
 
-			const TArray<FSurfaceBrushStroke> FourContacts = MakeStrokes(Region, 4, 0.8f);
+			const TArray<FSurfaceBrushStroke> FourContacts = MakeStrokes(Ribbon, 4, 0.8f);
 
 			Buffer->PaintStrokes(World, FourContacts);
 			Buffer->ApplyDecay(World, 0.99f);
@@ -231,19 +225,17 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 				continue;
 			}
 
-			const double CentimetresPerTexelBrakingZone =
-				BrakingZoneMetres * 100.0 / static_cast<double>(Resolution);
-			const double CentimetresPerTexelCircuit =
-				FullCircuitMetres * 100.0 / static_cast<double>(Resolution);
+			const double RibbonMetres =
+				Resolution * CarriedOverCentimetresPerTexel / 100.0;
 
 			AddInfo(FString::Printf(
-				TEXT("%d | %s | %lld | %.1f | %.2f | %.2f | %.4f ms | %.4f ms"),
+				TEXT("%d | %s | %lld | %.1f | %.1f | %.1f | %.4f ms | %.4f ms"),
 				Resolution,
 				Candidate.Name,
 				Buffer->GetAllocatedBytes(),
 				static_cast<double>(Buffer->GetAllocatedBytes()) / (1024.0 * 1024.0),
-				CentimetresPerTexelBrakingZone,
-				CentimetresPerTexelCircuit,
+				RibbonMetres,
+				RibbonMetres,
 				PaintMedian,
 				DecayMedian));
 
@@ -275,7 +267,7 @@ bool FSurfaceLinearGammaOnWrite::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FSurfaceRegion Region = MakeRegion(256);
+	const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(256);
 	const float Intensity = 0.5f;
 
 	UTextureRenderTarget2D* Unforced = UKismetRenderingLibrary::CreateRenderTarget2D(
@@ -304,14 +296,14 @@ bool FSurfaceLinearGammaOnWrite::RunTest(const FString& Parameters)
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, Region, RTF_RGBA8))
+	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA8))
 	{
 		AddError(TEXT("Failed to allocate the accumulation buffer."));
 		return false;
 	}
 
 	Buffer->Clear(World);
-	Buffer->PaintStrokes(World, MakeCentredStroke(Region, Intensity, EAccumulationChannel::SkidMark));
+	Buffer->PaintStrokes(World, MakeCentredStroke(Ribbon, Intensity, EAccumulationChannel::SkidMark));
 	FlushRenderingCommands();
 
 	const FLinearColor Stored = ReadCentreTexel(World, Buffer->GetTarget());
@@ -355,7 +347,7 @@ bool FSurfaceSaturationCurve::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FSurfaceRegion Region = MakeRegion(256);
+	const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(256);
 	const float Increment = 0.1f;
 	const int32 PassCount = 40;
 
@@ -366,7 +358,7 @@ bool FSurfaceSaturationCurve::RunTest(const FString& Parameters)
 	{
 		TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-		if (!Buffer->Allocate(World, Region, RTF_RGBA16f))
+		if (!Buffer->Allocate(World, Ribbon, RTF_RGBA16f))
 		{
 			AddError(TEXT("Failed to allocate the accumulation buffer."));
 			return false;
@@ -375,9 +367,9 @@ bool FSurfaceSaturationCurve::RunTest(const FString& Parameters)
 		Buffer->Clear(World);
 
 		const TArray<FSurfaceBrushStroke> Buildup =
-			MakeCentredStroke(Region, 0.5f, EAccumulationChannel::RubberBuildup);
+			MakeCentredStroke(Ribbon, 0.5f, EAccumulationChannel::RubberBuildup);
 		const TArray<FSurfaceBrushStroke> Skid =
-			MakeCentredStroke(Region, Increment, EAccumulationChannel::SkidMark);
+			MakeCentredStroke(Ribbon, Increment, EAccumulationChannel::SkidMark);
 
 		Buffer->PaintStrokes(World, Buildup, ESurfacePaintMode::Additive);
 		FlushRenderingCommands();
@@ -438,17 +430,17 @@ bool FSurfaceBatchedPaintMatchesSequential::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FSurfaceRegion Region = MakeRegion(512);
+	const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(512);
 	const int32 StrokeCount = 12;
 	const int32 GridSteps = 16;
 	const int32 GridSpacing = 4;
 
-	const TArray<FSurfaceBrushStroke> Strokes = MakeOverlappingFannedStrokes(Region, StrokeCount);
+	const TArray<FSurfaceBrushStroke> Strokes = MakeOverlappingFannedStrokes(Ribbon, StrokeCount);
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Batched(NewObject<USurfaceAccumulationBuffer>());
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Sequential(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Batched->Allocate(World, Region, RTF_RGBA16f) || !Sequential->Allocate(World, Region, RTF_RGBA16f))
+	if (!Batched->Allocate(World, Ribbon, RTF_RGBA16f) || !Sequential->Allocate(World, Ribbon, RTF_RGBA16f))
 	{
 		AddError(TEXT("Failed to allocate the comparison buffers."));
 		return false;
@@ -544,7 +536,7 @@ bool FSurfacePrecisionFloor::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FSurfaceRegion Region = MakeRegion(256);
+	const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(256);
 	const float Increments[] = { 0.05f, 0.01f, 0.004f, 0.002f, 0.001f };
 	const int32 PassCount = 200;
 
@@ -563,7 +555,7 @@ bool FSurfacePrecisionFloor::RunTest(const FString& Parameters)
 		{
 			TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-			if (!Buffer->Allocate(World, Region, Candidate.Format))
+			if (!Buffer->Allocate(World, Ribbon, Candidate.Format))
 			{
 				AddError(FString::Printf(TEXT("Failed to allocate in %s"), Candidate.Name));
 				continue;
@@ -572,7 +564,7 @@ bool FSurfacePrecisionFloor::RunTest(const FString& Parameters)
 			Buffer->Clear(World);
 
 			const TArray<FSurfaceBrushStroke> Stroke =
-				MakeCentredStroke(Region, Increment, EAccumulationChannel::SkidMark);
+				MakeCentredStroke(Ribbon, Increment, EAccumulationChannel::SkidMark);
 
 			int32 FirstMovingPass = 0;
 
