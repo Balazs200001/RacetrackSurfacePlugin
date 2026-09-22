@@ -80,7 +80,7 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, Region))
+	if (!Buffer->Allocate(World, Region, RTF_RGBA8))
 	{
 		AddError(TEXT("Failed to allocate the accumulation buffer."));
 		return false;

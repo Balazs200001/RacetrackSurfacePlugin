@@ -15,7 +15,7 @@ class USurfaceAccumulationBuffer : public UObject
 	GENERATED_BODY()
 
 public:
-	bool Allocate(UObject* WorldContext, const FSurfaceRegion& Region, ETextureRenderTargetFormat Format = RTF_RGBA8);
+	bool Allocate(UObject* WorldContext, const FSurfaceRegion& Region, ETextureRenderTargetFormat Format = RTF_RGBA16f);
 
 	void Release();
 
@@ -68,5 +68,5 @@ private:
 
 	int32 AllocatedResolution = 0;
 
-	ETextureRenderTargetFormat AllocatedFormat = RTF_RGBA8;
+	ETextureRenderTargetFormat AllocatedFormat = RTF_RGBA16f;
 };
