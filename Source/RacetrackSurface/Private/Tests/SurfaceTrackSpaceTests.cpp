@@ -3,9 +3,12 @@
 #include "UObject/StrongObjectPtr.h"
 #include "SurfaceTrackRibbon.h"
 #include "SurfaceTrackSpace.h"
+#include "Tests/RacetrackSurfaceTestHelpers.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+using RacetrackSurfaceTest::MakeClosedCircleSpline;
+using RacetrackSurfaceTest::MakeSplineFromPoints;
 using RacetrackSurfaceTrackSpace::TrackToWorld;
 using RacetrackSurfaceTrackSpace::WorldToTrack;
 
@@ -13,38 +16,9 @@ namespace
 {
 	constexpr double TestTrackWidth = 1200.0;
 
-	TStrongObjectPtr<USplineComponent> MakeSpline(const TArray<FVector>& Points, bool bClosedLoop)
-	{
-		TStrongObjectPtr<USplineComponent> Spline(NewObject<USplineComponent>());
-
-		Spline->ClearSplinePoints(false);
-
-		for (int32 Index = 0; Index < Points.Num(); ++Index)
-		{
-			Spline->AddSplinePoint(Points[Index], ESplineCoordinateSpace::Local, false);
-			Spline->SetSplinePointType(Index, ESplinePointType::Curve, false);
-		}
-
-		Spline->SetClosedLoop(bClosedLoop, true);
-
-		return Spline;
-	}
-
 	TStrongObjectPtr<USplineComponent> MakeClosedCircle()
 	{
-		constexpr double Radius = 5000.0;
-		constexpr int32 PointCount = 16;
-
-		TArray<FVector> Points;
-		Points.Reserve(PointCount);
-
-		for (int32 Index = 0; Index < PointCount; ++Index)
-		{
-			const double Angle = 2.0 * UE_DOUBLE_PI * Index / PointCount;
-			Points.Add(FVector(Radius * FMath::Cos(Angle), Radius * FMath::Sin(Angle), 0.0));
-		}
-
-		return MakeSpline(Points, true);
+		return MakeClosedCircleSpline(5000.0, 16);
 	}
 
 	TStrongObjectPtr<USplineComponent> MakeSerpentine()
@@ -63,7 +37,7 @@ namespace
 			Points.Add(FVector(X, Amplitude * FMath::Sin(2.0 * UE_DOUBLE_PI * X / Wavelength), 0.0));
 		}
 
-		return MakeSpline(Points, false);
+		return MakeSplineFromPoints(Points, false);
 	}
 
 	FSurfaceTrackCoordinate MakeCoordinate(double Distance, double Alpha)
