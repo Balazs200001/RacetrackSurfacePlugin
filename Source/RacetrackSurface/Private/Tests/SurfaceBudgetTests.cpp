@@ -109,6 +109,63 @@ namespace
 		return Raw;
 	}
 
+	TArray<FSurfaceBrushStroke> MakeOverlappingFannedStrokes(const FSurfaceRegion& Region, int32 Count)
+	{
+		const float WidthInTexels = static_cast<float>(Region.WorldDistanceToTexels(400.0));
+		const double HalfLength = 0.15;
+
+		TArray<FSurfaceBrushStroke> Strokes;
+		Strokes.Reserve(Count);
+
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			const double Angle = UE_DOUBLE_PI * static_cast<double>(Index) / static_cast<double>(Count);
+			const FVector2D Half = FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * HalfLength;
+
+			FSurfaceBrushStroke Stroke;
+			Stroke.RegionStart = FVector2D(0.5, 0.5) - Half;
+			Stroke.RegionEnd = FVector2D(0.5, 0.5) + Half;
+			Stroke.WidthInTexels = WidthInTexels;
+			Stroke.Intensity = 0.05f;
+			Stroke.Channel = EAccumulationChannel::SkidMark;
+
+			Strokes.Add(Stroke);
+		}
+
+		return Strokes;
+	}
+
+	TArray<FLinearColor> ReadCentredTexelWindow(
+		UObject* WorldContext,
+		UTextureRenderTarget2D* Target,
+		int32 Steps,
+		int32 Spacing)
+	{
+		TArray<FLinearColor> Samples;
+		Samples.Reserve(Steps * Steps);
+
+		for (int32 Y = 0; Y < Steps; ++Y)
+		{
+			for (int32 X = 0; X < Steps; ++X)
+			{
+				const int32 PixelX = Target->SizeX / 2 + (X - Steps / 2) * Spacing;
+				const int32 PixelY = Target->SizeY / 2 + (Y - Steps / 2) * Spacing;
+
+				FLinearColor Raw = UKismetRenderingLibrary::ReadRenderTargetRawPixel(
+					WorldContext, Target, PixelX, PixelY, false);
+
+				if (Target->GetFormat() == PF_B8G8R8A8)
+				{
+					Raw = Raw / 255.0f;
+				}
+
+				Samples.Add(Raw);
+			}
+		}
+
+		return Samples;
+	}
+
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -356,6 +413,112 @@ bool FSurfaceSaturationCurve::RunTest(const FString& Parameters)
 
 		Buffer->Release();
 	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceBatchedPaintMatchesSequential,
+	"RacetrackSurface.Accumulator.BatchedPaintMatchesSequential",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceBatchedPaintMatchesSequential::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddWarning(TEXT("Skipped: build cannot render."));
+		return true;
+	}
+
+	UWorld* World = FindRenderableWorld();
+
+	if (World == nullptr)
+	{
+		AddError(TEXT("No renderable world available."));
+		return false;
+	}
+
+	const FSurfaceRegion Region = MakeRegion(512);
+	const int32 StrokeCount = 12;
+	const int32 GridSteps = 16;
+	const int32 GridSpacing = 4;
+
+	const TArray<FSurfaceBrushStroke> Strokes = MakeOverlappingFannedStrokes(Region, StrokeCount);
+
+	TStrongObjectPtr<USurfaceAccumulationBuffer> Batched(NewObject<USurfaceAccumulationBuffer>());
+	TStrongObjectPtr<USurfaceAccumulationBuffer> Sequential(NewObject<USurfaceAccumulationBuffer>());
+
+	if (!Batched->Allocate(World, Region, RTF_RGBA16f) || !Sequential->Allocate(World, Region, RTF_RGBA16f))
+	{
+		AddError(TEXT("Failed to allocate the comparison buffers."));
+		return false;
+	}
+
+	Batched->Clear(World);
+	Batched->PaintStrokes(World, Strokes);
+	FlushRenderingCommands();
+
+	Sequential->Clear(World);
+
+	for (const FSurfaceBrushStroke& Stroke : Strokes)
+	{
+		Sequential->PaintStrokes(World, TArray<FSurfaceBrushStroke>({ Stroke }));
+	}
+
+	FlushRenderingCommands();
+
+	const TArray<FLinearColor> BatchedSamples =
+		ReadCentredTexelWindow(World, Batched->GetTarget(), GridSteps, GridSpacing);
+	const TArray<FLinearColor> SequentialSamples =
+		ReadCentredTexelWindow(World, Sequential->GetTarget(), GridSteps, GridSpacing);
+
+	if (BatchedSamples.Num() != SequentialSamples.Num())
+	{
+		AddError(TEXT("Grid readback returned mismatched sample counts."));
+		return false;
+	}
+
+	float MaxDifference = 0.0f;
+	float MaxBatchedValue = 0.0f;
+	int32 InkedSamples = 0;
+
+	for (int32 Index = 0; Index < BatchedSamples.Num(); ++Index)
+	{
+		const float BatchedValue = BatchedSamples[Index].G;
+		const float SequentialValue = SequentialSamples[Index].G;
+
+		MaxDifference = FMath::Max(MaxDifference, FMath::Abs(BatchedValue - SequentialValue));
+		MaxBatchedValue = FMath::Max(MaxBatchedValue, BatchedValue);
+
+		if (BatchedValue > 0.0f)
+		{
+			++InkedSamples;
+		}
+	}
+
+	AddInfo(FString::Printf(
+		TEXT("%d strokes at %d distinct headings, %d grid samples, %d inked, peak %.5f, max batched-vs-sequential difference %.6f"),
+		StrokeCount,
+		StrokeCount,
+		BatchedSamples.Num(),
+		InkedSamples,
+		MaxBatchedValue,
+		MaxDifference));
+
+	TestTrue(
+		TEXT("The batched buffer actually contains ink, so the comparison is not two empty buffers"),
+		InkedSamples > 0 && MaxBatchedValue > 0.01f);
+
+	TestTrue(
+		TEXT("The sampled window covers overlapping strokes, so blend ordering is actually exercised"),
+		MaxBatchedValue > 0.15f);
+
+	TestTrue(
+		TEXT("One batched paint call produces the same accumulation as one call per stroke"),
+		MaxDifference < 0.002f);
+
+	Batched->Release();
+	Sequential->Release();
 
 	return true;
 }
