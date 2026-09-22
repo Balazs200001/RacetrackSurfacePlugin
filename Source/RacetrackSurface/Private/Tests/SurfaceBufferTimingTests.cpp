@@ -44,24 +44,43 @@ namespace
 		return nullptr;
 	}
 
-	bool TimeGpuWork(TFunctionRef<void()> Work, double& OutMilliseconds)
+	struct FTimestampPair
 	{
-		struct FTimestampPair
-		{
-			FRenderQueryPoolRHIRef Pool;
-			FRHIPooledRenderQuery Start;
-			FRHIPooledRenderQuery End;
-		};
+		FRenderQueryRHIRef Start;
+		FRenderQueryRHIRef End;
+		uint64 StartMicroseconds = 0;
+		uint64 EndMicroseconds = 0;
+		bool bResolved = false;
+	};
 
+	TSharedRef<FTimestampPair> CreateTimestampPair()
+	{
 		TSharedRef<FTimestampPair> Queries = MakeShared<FTimestampPair>();
+
+		ENQUEUE_RENDER_COMMAND(RacetrackSurfaceCreateTimestamps)(
+			[Queries](FRHICommandListImmediate&)
+			{
+				Queries->Start = RHICreateRenderQuery(RQT_AbsoluteTime);
+				Queries->End = RHICreateRenderQuery(RQT_AbsoluteTime);
+			});
+
+		FlushRenderingCommands();
+
+		return Queries;
+	}
+
+	bool TimeGpuWork(const TSharedRef<FTimestampPair>& Queries, TFunctionRef<void()> Work, double& OutMilliseconds)
+	{
+		if (!Queries->Start.IsValid() || !Queries->End.IsValid())
+		{
+			return false;
+		}
 
 		ENQUEUE_RENDER_COMMAND(RacetrackSurfaceBeginTiming)(
 			[Queries](FRHICommandListImmediate& RHICmdList)
 			{
-				Queries->Pool = RHICreateRenderQueryPool(RQT_AbsoluteTime, 2);
-				Queries->Start = Queries->Pool->AllocateQuery();
-				Queries->End = Queries->Pool->AllocateQuery();
-				RHICmdList.EndRenderQuery(Queries->Start.GetQuery());
+				Queries->bResolved = false;
+				RHICmdList.EndRenderQuery(Queries->Start);
 			});
 
 		Work();
@@ -69,34 +88,36 @@ namespace
 		ENQUEUE_RENDER_COMMAND(RacetrackSurfaceEndTiming)(
 			[Queries](FRHICommandListImmediate& RHICmdList)
 			{
-				RHICmdList.EndRenderQuery(Queries->End.GetQuery());
+				RHICmdList.EndRenderQuery(Queries->End);
 				RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+
+				Queries->bResolved =
+					RHIGetRenderQueryResult(Queries->Start, Queries->StartMicroseconds, true)
+					&& RHIGetRenderQueryResult(Queries->End, Queries->EndMicroseconds, true);
 			});
 
 		FlushRenderingCommands();
 
-		uint64 StartMicroseconds = 0;
-		uint64 EndMicroseconds = 0;
-
-		if (!RHIGetRenderQueryResult(Queries->Start.GetQuery(), StartMicroseconds, true)
-			|| !RHIGetRenderQueryResult(Queries->End.GetQuery(), EndMicroseconds, true))
+		if (!Queries->bResolved || Queries->EndMicroseconds < Queries->StartMicroseconds)
 		{
 			return false;
 		}
 
-		OutMilliseconds = static_cast<double>(EndMicroseconds - StartMicroseconds) / 1000.0;
+		OutMilliseconds = static_cast<double>(Queries->EndMicroseconds - Queries->StartMicroseconds) / 1000.0;
 		return true;
 	}
 
 	bool SampleGpuWork(TFunctionRef<void()> Work, double& OutMedian, double& OutMinimum)
 	{
+		const TSharedRef<FTimestampPair> Queries = CreateTimestampPair();
+
 		TArray<double> Samples;
 		Samples.Reserve(TimingSampleCount);
 
 		for (int32 Index = 0; Index < TimingSampleCount; ++Index)
 		{
 			double Milliseconds = 0.0;
-			if (!TimeGpuWork(Work, Milliseconds))
+			if (!TimeGpuWork(Queries, Work, Milliseconds))
 			{
 				return false;
 			}
