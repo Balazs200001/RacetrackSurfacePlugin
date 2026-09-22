@@ -66,6 +66,8 @@ private:
 
 	bool EnsureBuffer();
 
+	void PublishRegionToMaterials();
+
 	FSurfaceRegion Region;
 
 	UPROPERTY(Transient)

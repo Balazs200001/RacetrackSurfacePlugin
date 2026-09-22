@@ -1,6 +1,9 @@
 #include "SurfaceAccumulationSubsystem.h"
 
+#include "Kismet/KismetMaterialLibrary.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "SurfaceAccumulationBuffer.h"
+#include "SurfaceAccumulationMapping.h"
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
@@ -33,12 +36,69 @@ void USurfaceAccumulationSubsystem::Deinitialize()
 
 bool USurfaceAccumulationSubsystem::EnsureBuffer()
 {
-	if (Buffer == nullptr)
+	const bool bFirstAllocation = Buffer == nullptr;
+
+	if (bFirstAllocation)
 	{
 		Buffer = NewObject<USurfaceAccumulationBuffer>(this);
 	}
 
-	return Buffer != nullptr && Buffer->Allocate(this, Region);
+	if (Buffer == nullptr || !Buffer->Allocate(this, Region))
+	{
+		return false;
+	}
+
+	if (bFirstAllocation)
+	{
+		PublishRegionToMaterials();
+	}
+
+	return true;
+}
+
+void USurfaceAccumulationSubsystem::PublishRegionToMaterials()
+{
+	UMaterialParameterCollection* Collection = LoadObject<UMaterialParameterCollection>(
+		nullptr,
+		RacetrackSurfaceMapping::ParameterCollectionAssetPath);
+
+	if (Collection == nullptr)
+	{
+		UE_LOG(LogRacetrackSurface, Warning,
+			TEXT("Parameter collection %s is missing, so materials cannot resolve the region or the saturation constant"),
+			RacetrackSurfaceMapping::ParameterCollectionAssetPath);
+		return;
+	}
+
+	UKismetMaterialLibrary::SetVectorParameterValue(
+		this,
+		Collection,
+		RacetrackSurfaceMapping::RegionCentreParameterName,
+		FLinearColor(
+			static_cast<float>(Region.WorldCentre.X),
+			static_cast<float>(Region.WorldCentre.Y),
+			0.0f,
+			0.0f));
+
+	UKismetMaterialLibrary::SetScalarParameterValue(
+		this,
+		Collection,
+		RacetrackSurfaceMapping::RegionWorldSizeParameterName,
+		static_cast<float>(Region.WorldSize));
+
+	UKismetMaterialLibrary::SetScalarParameterValue(
+		this,
+		Collection,
+		RacetrackSurfaceMapping::SaturationConstantParameterName,
+		RacetrackSurfaceMapping::SaturationConstant);
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Published region centre (%.1f, %.1f), world size %.1f and saturation constant %.3f to %s"),
+		Region.WorldCentre.X,
+		Region.WorldCentre.Y,
+		Region.WorldSize,
+		RacetrackSurfaceMapping::SaturationConstant,
+		*Collection->GetName());
 }
 
 void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
@@ -79,6 +139,8 @@ void USurfaceAccumulationSubsystem::ConfigureRegion(const FSurfaceRegion& NewReg
 		Region.WorldSize,
 		Region.ResolutionTexels,
 		Region.CentimetresPerTexel());
+
+	PublishRegionToMaterials();
 }
 
 void USurfaceAccumulationSubsystem::ResetSurface()
