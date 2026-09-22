@@ -59,3 +59,13 @@ void URacetrackSurfaceBlueprintLibrary::ResetSurface(const UObject* WorldContext
 		Subsystem->ResetSurface();
 	}
 }
+
+UTextureRenderTarget2D* URacetrackSurfaceBlueprintLibrary::GetAccumulationTarget(const UObject* WorldContextObject)
+{
+	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
+	{
+		return Subsystem->GetOrCreateAccumulationTarget();
+	}
+
+	return nullptr;
+}

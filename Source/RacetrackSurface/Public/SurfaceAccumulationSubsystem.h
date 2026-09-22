@@ -8,6 +8,7 @@
 #include "SurfaceAccumulationSubsystem.generated.h"
 
 class USurfaceAccumulationBuffer;
+class UTextureRenderTarget2D;
 
 RACETRACKSURFACE_API DECLARE_LOG_CATEGORY_EXTERN(LogRacetrackSurface, Log, All);
 
@@ -60,6 +61,8 @@ public:
 	{
 		return Buffer;
 	}
+
+	UTextureRenderTarget2D* GetOrCreateAccumulationTarget();
 
 private:
 	void FlushPendingContacts(float DeltaSeconds);

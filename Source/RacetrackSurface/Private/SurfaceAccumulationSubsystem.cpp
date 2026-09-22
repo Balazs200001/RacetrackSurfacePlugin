@@ -56,6 +56,11 @@ bool USurfaceAccumulationSubsystem::EnsureBuffer()
 	return true;
 }
 
+UTextureRenderTarget2D* USurfaceAccumulationSubsystem::GetOrCreateAccumulationTarget()
+{
+	return EnsureBuffer() ? Buffer->GetTarget() : nullptr;
+}
+
 void USurfaceAccumulationSubsystem::PublishRegionToMaterials()
 {
 	UMaterialParameterCollection* Collection = LoadObject<UMaterialParameterCollection>(

@@ -7,6 +7,7 @@
 #include "RacetrackSurfaceBlueprintLibrary.generated.h"
 
 class USurfaceAccumulationSubsystem;
+class UTextureRenderTarget2D;
 
 UCLASS()
 class RACETRACKSURFACE_API URacetrackSurfaceBlueprintLibrary : public UBlueprintFunctionLibrary
@@ -35,6 +36,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
 	static void ResetSurface(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
+	static UTextureRenderTarget2D* GetAccumulationTarget(const UObject* WorldContextObject);
 
 	static USurfaceAccumulationSubsystem* FindSubsystem(const UObject* WorldContextObject);
 };
