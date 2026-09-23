@@ -23,6 +23,8 @@ namespace RacetrackSurfaceMapping
 
 	static constexpr const TCHAR* SaturationConstantParameterName = TEXT("SaturationConstant");
 
+	static constexpr const TCHAR* AccumulationRowCountParameterName = TEXT("AccumulationRowCount");
+
 	static constexpr const TCHAR* AccumulationTargetParameterName = TEXT("AccumulationTarget");
 
 	static constexpr const TCHAR* DepositionScaleVariableName = TEXT("r.RacetrackSurface.DepositionScale");

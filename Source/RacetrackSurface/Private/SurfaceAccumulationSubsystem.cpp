@@ -98,9 +98,16 @@ void USurfaceAccumulationSubsystem::PublishRibbonToMaterials()
 		RacetrackSurfaceMapping::SaturationConstantParameterName,
 		RacetrackSurfaceMapping::SaturationConstant);
 
+	UKismetMaterialLibrary::SetScalarParameterValue(
+		this,
+		Collection,
+		RacetrackSurfaceMapping::AccumulationRowCountParameterName,
+		static_cast<float>(Ribbon.RowCount()));
+
 	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Published saturation constant %.3f to %s"),
+		TEXT("Published saturation constant %.3f and a row count of %d to %s"),
 		RacetrackSurfaceMapping::SaturationConstant,
+		Ribbon.RowCount(),
 		*Collection->GetName());
 }
 
