@@ -9,6 +9,17 @@
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
+namespace
+{
+	TAutoConsoleVariable<float> CVarDepositionScale(
+		TEXT("r.RacetrackSurface.DepositionScale"),
+		1.0f,
+		TEXT("Multiplies how much exposure one contact deposits. 1 is the derived rate, at which ")
+		TEXT("buildup approaches saturation over roughly 500 contacts. Raise it to watch a session's ")
+		TEXT("worth of rubber accumulate in a few laps without time compression."),
+		ECVF_Default);
+}
+
 void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -256,7 +267,8 @@ void USurfaceAccumulationSubsystem::AppendStroke(
 		FSurfaceTrackRibbon::NormalisedAcrossTrack(ToAlpha));
 
 	Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(Contact.ContactWidth));
-	Stroke.Intensity = FMath::Clamp(Contact.SlipAmount, 0.0f, 1.0f);
+	Stroke.Intensity = RacetrackSurfaceMapping::SlipToExposure(
+		Contact.SlipAmount, CVarDepositionScale.GetValueOnGameThread());
 	Stroke.Channel = Contact.Channel;
 
 	OutStrokes.Add(Stroke);
