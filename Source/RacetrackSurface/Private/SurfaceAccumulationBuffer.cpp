@@ -90,7 +90,7 @@ namespace
 			}
 
 			UE_LOG(LogRacetrackSurface, Log,
-				TEXT("Paint timing: %d contacts, %.4f ms"),
+				TEXT("Paint timing: %d strokes, %.4f ms"),
 				StrokeCount,
 				static_cast<double>(Queries->EndMicroseconds - Queries->StartMicroseconds) / 1000.0);
 		}
