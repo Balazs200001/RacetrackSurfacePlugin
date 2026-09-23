@@ -110,5 +110,8 @@ struct FSurfaceBrushStroke
 	float Intensity = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
+	int32 RowIndex = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
 	EAccumulationChannel Channel = EAccumulationChannel::SkidMark;
 };

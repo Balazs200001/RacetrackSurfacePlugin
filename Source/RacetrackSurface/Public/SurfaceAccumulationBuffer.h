@@ -15,7 +15,7 @@ class USurfaceAccumulationBuffer : public UObject
 	GENERATED_BODY()
 
 public:
-	bool Allocate(UObject* WorldContext, int32 Width, int32 Height, ETextureRenderTargetFormat Format = RTF_RGBA16f);
+	bool Allocate(UObject* WorldContext, int32 Width, int32 Height, ETextureRenderTargetFormat Format = RTF_RGBA16f, int32 RowCount = 1);
 
 	bool Allocate(UObject* WorldContext, const FSurfaceTrackRibbon& Ribbon, ETextureRenderTargetFormat Format = RTF_RGBA16f);
 
@@ -55,6 +55,13 @@ public:
 		return AllocatedFormat;
 	}
 
+	int32 GetAllocatedRowCount() const
+	{
+		return AllocatedRowCount;
+	}
+
+	FIntRect GetRowBounds(int32 RowIndex) const;
+
 	int64 GetAllocatedBytes() const;
 
 	static FLinearColor ChannelMask(EAccumulationChannel Channel);
@@ -76,6 +83,8 @@ private:
 	int32 AllocatedWidth = 0;
 
 	int32 AllocatedHeight = 0;
+
+	int32 AllocatedRowCount = 1;
 
 	ETextureRenderTargetFormat AllocatedFormat = RTF_RGBA16f;
 };

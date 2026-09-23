@@ -178,7 +178,8 @@ bool USurfaceAccumulationBuffer::Allocate(
 	UObject* WorldContext,
 	int32 Width,
 	int32 Height,
-	ETextureRenderTargetFormat Format)
+	ETextureRenderTargetFormat Format,
+	int32 RowCount)
 {
 	if (WorldContext == nullptr)
 	{
@@ -187,21 +188,27 @@ bool USurfaceAccumulationBuffer::Allocate(
 
 	const int32 ClampedWidth = FMath::Max(Width, 1);
 	const int32 ClampedHeight = FMath::Max(Height, 1);
+	const int32 ClampedRowCount = FMath::Max(RowCount, 1);
 	const int32 MaximumDimension = static_cast<int32>(GetMax2DTextureDimension());
 
 	if (ClampedWidth > MaximumDimension || ClampedHeight > MaximumDimension)
 	{
 		UE_LOG(LogRacetrackSurface, Error,
-			TEXT("Cannot allocate a %d x %d accumulation buffer: this RHI allows at most %d in either dimension. ")
-			TEXT("A ribbon this long has to be folded into rows, which is not implemented, or drawn at a coarser texel density."),
+			TEXT("Cannot allocate a %d x %d accumulation buffer folded into %d rows: this RHI allows at most %d ")
+			TEXT("in either dimension. The ribbon needs more rows, a coarser texel density or a shorter track."),
 			ClampedWidth,
 			ClampedHeight,
+			ClampedRowCount,
 			MaximumDimension);
 
 		return false;
 	}
 
-	if (Target != nullptr && AllocatedWidth == ClampedWidth && AllocatedHeight == ClampedHeight && AllocatedFormat == Format)
+	if (Target != nullptr
+		&& AllocatedWidth == ClampedWidth
+		&& AllocatedHeight == ClampedHeight
+		&& AllocatedRowCount == ClampedRowCount
+		&& AllocatedFormat == Format)
 	{
 		return true;
 	}
@@ -224,12 +231,14 @@ bool USurfaceAccumulationBuffer::Allocate(
 
 	AllocatedWidth = ClampedWidth;
 	AllocatedHeight = ClampedHeight;
+	AllocatedRowCount = ClampedRowCount;
 	AllocatedFormat = Format;
 
 	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Accumulation buffer allocated at %d x %d, %lld bytes"),
+		TEXT("Accumulation buffer allocated at %d x %d in %d rows, %lld bytes"),
 		AllocatedWidth,
 		AllocatedHeight,
+		AllocatedRowCount,
 		GetAllocatedBytes());
 
 	return true;
@@ -240,7 +249,16 @@ bool USurfaceAccumulationBuffer::Allocate(
 	const FSurfaceTrackRibbon& Ribbon,
 	ETextureRenderTargetFormat Format)
 {
-	return Allocate(WorldContext, Ribbon.AlongTrackTexels(), Ribbon.AcrossTrackTexels(), Format);
+	return Allocate(WorldContext, Ribbon.AtlasWidth(), Ribbon.AtlasHeight(), Format, Ribbon.RowCount());
+}
+
+FIntRect USurfaceAccumulationBuffer::GetRowBounds(int32 RowIndex) const
+{
+	const int32 Rows = FMath::Max(AllocatedRowCount, 1);
+	const int32 RowHeight = AllocatedHeight / Rows;
+	const int32 ClampedRow = FMath::Clamp(RowIndex, 0, Rows - 1);
+
+	return FIntRect(0, ClampedRow * RowHeight, AllocatedWidth, (ClampedRow + 1) * RowHeight);
 }
 
 void USurfaceAccumulationBuffer::Release()
@@ -253,6 +271,7 @@ void USurfaceAccumulationBuffer::Release()
 
 	AllocatedWidth = 0;
 	AllocatedHeight = 0;
+	AllocatedRowCount = 1;
 }
 
 int64 USurfaceAccumulationBuffer::GetAllocatedBytes() const
@@ -391,8 +410,22 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 		const bool bSaturating = PaintMode == ESurfacePaintMode::Saturating;
 		const EBlendMode BlendMode = bSaturating ? BLEND_Translucent : BLEND_Additive;
 
+		const bool bClipToRows = AllocatedRowCount > 1 && Canvas->Canvas != nullptr;
+		int32 ClippedRow = INDEX_NONE;
+
 		for (const FSurfaceBrushStroke& Stroke : Strokes)
 		{
+			if (bClipToRows && Stroke.RowIndex != ClippedRow)
+			{
+				if (ClippedRow != INDEX_NONE)
+				{
+					Canvas->Canvas->Flush_GameThread(true);
+				}
+
+				ClippedRow = Stroke.RowIndex;
+				Canvas->Canvas->SetRenderTargetScissorRect(GetRowBounds(ClippedRow));
+			}
+
 			const FVector2D Start = Stroke.RegionStart * CanvasSize;
 			const FVector2D End = Stroke.RegionEnd * CanvasSize;
 			const FVector2D Delta = End - Start;
