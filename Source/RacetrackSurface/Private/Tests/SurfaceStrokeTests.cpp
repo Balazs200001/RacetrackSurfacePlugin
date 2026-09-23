@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "Components/SplineComponent.h"
 #include "UObject/StrongObjectPtr.h"
+#include "SurfaceAccumulationMapping.h"
 #include "SurfaceAccumulationSubsystem.h"
 #include "SurfaceTrackSpace.h"
 #include "Tests/RacetrackSurfaceTestHelpers.h"
@@ -318,8 +319,28 @@ bool FSurfaceStrokeConvertsWidthAndIntensity::RunTest(const FString& Parameters)
 		FMath::IsNearlyEqual(Strokes[0].WidthInTexels, ExpectedWidthInTexels, UE_KINDA_SMALL_NUMBER));
 
 	TestTrue(
-		TEXT("Slip amount above one is clamped"),
-		FMath::IsNearlyEqual(Strokes[0].Intensity, 1.0f, UE_KINDA_SMALL_NUMBER));
+		TEXT("Slip amount above one is clamped before it becomes exposure"),
+		FMath::IsNearlyEqual(
+			Strokes[0].Intensity, RacetrackSurfaceMapping::ExposurePerUnitSlip, UE_KINDA_SMALL_NUMBER));
+
+	const int32 ContactsToSaturation = FMath::CeilToInt32(1.0f / RacetrackSurfaceMapping::ExposurePerUnitSlip);
+	const float CoverageAtSaturation =
+		RacetrackSurfaceMapping::ExposureToCoverage(ContactsToSaturation * RacetrackSurfaceMapping::ExposurePerUnitSlip);
+
+	AddInfo(FString::Printf(
+		TEXT("One full-slip contact deposits %.5f exposure, which is %.4f coverage. %d contacts reach %.4f."),
+		Strokes[0].Intensity,
+		RacetrackSurfaceMapping::ExposureToCoverage(Strokes[0].Intensity),
+		ContactsToSaturation,
+		CoverageAtSaturation));
+
+	TestTrue(
+		TEXT("One contact leaves a faint mark rather than a saturated one, so buildup takes a session"),
+		RacetrackSurfaceMapping::ExposureToCoverage(Strokes[0].Intensity) < 0.01f);
+
+	TestTrue(
+		TEXT("Roughly five hundred full-slip contacts approach the ceiling, as the precision floor derived"),
+		CoverageAtSaturation > 0.9f);
 
 	return true;
 }
