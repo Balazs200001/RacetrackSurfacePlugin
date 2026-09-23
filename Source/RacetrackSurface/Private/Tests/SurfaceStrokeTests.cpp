@@ -40,6 +40,20 @@ namespace
 		return Harness;
 	}
 
+	FHarness MakeFoldedHarness()
+	{
+		FHarness Harness;
+		Harness.Circuit = MakeTestCircuit();
+		Harness.Ribbon.TrackLength = 180000.0;
+		Harness.Ribbon.TrackWidth = 800.0;
+		Harness.Ribbon.CentimetresPerTexel = 3.125;
+		Harness.Ribbon.bClosedLoop = true;
+		Harness.Subsystem = TStrongObjectPtr<USurfaceAccumulationSubsystem>(
+			NewObject<USurfaceAccumulationSubsystem>());
+		Harness.Subsystem->ConfigureTrackRibbon(Harness.Circuit.Get(), Harness.Ribbon);
+		return Harness;
+	}
+
 	FSurfaceTrackContact MakeTrackContact(double Distance, double Alpha, double Speed)
 	{
 		FSurfaceTrackContact Contact;
@@ -204,6 +218,137 @@ bool FSurfaceStrokeSplitsAtTheLapSeam::RunTest(const FString& Parameters)
 		FString::Printf(TEXT("Neither piece smears across the ribbon, longest is %.2f cm of a %.0f cm lap"),
 			FMath::Max(FirstLength, SecondLength), Length),
 		FMath::Max(FirstLength, SecondLength) < Travel + 1.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceStrokeSplitsAtRowBoundaries,
+	"RacetrackSurface.Stroke.SplitsAtRowBoundaries",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceStrokeSplitsAtRowBoundaries::RunTest(const FString& Parameters)
+{
+	const FHarness Harness = MakeFoldedHarness();
+	const double RowLength = Harness.Ribbon.RowLength();
+
+	TestEqual(TEXT("The folded harness has four rows"), Harness.Ribbon.RowCount(), 4);
+
+	const double Travel = RaceSpeedCentimetresPerSecond * FrameSeconds;
+	const double PastTheBoundary = RowLength + Travel * 0.25;
+
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(PastTheBoundary, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, Strokes);
+
+	TestEqual(TEXT("A contact straddling a row boundary produces two strokes, not one"), Strokes.Num(), 2);
+
+	if (Strokes.Num() != 2)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("The first piece stays in the row it started in"), Strokes[0].RowIndex, 0);
+	TestEqual(TEXT("The second piece lands in the next row down"), Strokes[1].RowIndex, 1);
+
+	TestTrue(
+		TEXT("The first piece runs to the right edge of its row"),
+		FMath::IsNearlyEqual(Strokes[0].RegionEnd.X, 1.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	TestTrue(
+		TEXT("The second piece starts at the left edge of its row"),
+		FMath::IsNearlyEqual(Strokes[1].RegionStart.X, 0.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	const double FirstLength = (Strokes[0].RegionEnd.X - Strokes[0].RegionStart.X) * RowLength;
+	const double SecondLength = (Strokes[1].RegionEnd.X - Strokes[1].RegionStart.X) * RowLength;
+
+	TestTrue(
+		FString::Printf(TEXT("The two pieces together span the frame's travel, got %.2f + %.2f cm against %.2f"),
+			FirstLength, SecondLength, Travel),
+		FMath::IsNearlyEqual(FirstLength + SecondLength, Travel, 1.0));
+
+	TestTrue(
+		TEXT("Neither piece leaves its own band of the atlas"),
+		Strokes[0].RegionStart.Y < 0.25 && Strokes[1].RegionStart.Y >= 0.25 && Strokes[1].RegionStart.Y < 0.5);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceStrokeSplitsWhereTheLastRowMeetsTheFirst,
+	"RacetrackSurface.Stroke.SplitsWhereTheLastRowMeetsTheFirst",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceStrokeSplitsWhereTheLastRowMeetsTheFirst::RunTest(const FString& Parameters)
+{
+	const FHarness Harness = MakeFoldedHarness();
+	const double RowLength = Harness.Ribbon.RowLength();
+	const int32 Rows = Harness.Ribbon.RowCount();
+
+	const double Travel = RaceSpeedCentimetresPerSecond * FrameSeconds;
+
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(Travel * 0.25, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, Strokes);
+
+	TestEqual(TEXT("The lap seam is a row boundary and splits the same way"), Strokes.Num(), 2);
+
+	if (Strokes.Num() != 2)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("The piece before the seam belongs to the last row"), Strokes[0].RowIndex, Rows - 1);
+	TestEqual(TEXT("The piece after the seam belongs to the first row"), Strokes[1].RowIndex, 0);
+
+	TestTrue(
+		TEXT("The last row runs out at its right edge rather than wrapping inside itself"),
+		FMath::IsNearlyEqual(Strokes[0].RegionEnd.X, 1.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	TestTrue(
+		TEXT("The first row picks up at its left edge"),
+		FMath::IsNearlyEqual(Strokes[1].RegionStart.X, 0.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	const double FirstLength = (Strokes[0].RegionEnd.X - Strokes[0].RegionStart.X) * RowLength;
+	const double SecondLength = (Strokes[1].RegionEnd.X - Strokes[1].RegionStart.X) * RowLength;
+
+	TestTrue(
+		FString::Printf(TEXT("The two pieces together span the frame's travel, got %.2f + %.2f cm against %.2f"),
+			FirstLength, SecondLength, Travel),
+		FMath::IsNearlyEqual(FirstLength + SecondLength, Travel, 1.0));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceStrokeStaysWholeInsideARow,
+	"RacetrackSurface.Stroke.StaysWholeInsideARow",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceStrokeStaysWholeInsideARow::RunTest(const FString& Parameters)
+{
+	const FHarness Harness = MakeFoldedHarness();
+	const double RowLength = Harness.Ribbon.RowLength();
+
+	TArray<FSurfaceBrushStroke> Strokes;
+	Harness.Subsystem->BuildStrokes(
+		MakeTrackContact(RowLength * 2.5, 0.0, RaceSpeedCentimetresPerSecond), FrameSeconds, Strokes);
+
+	TestEqual(TEXT("A contact well inside a row is not split"), Strokes.Num(), 1);
+
+	if (Strokes.Num() != 1)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("A contact half way along the third row reports the third row"), Strokes[0].RowIndex, 2);
+
+	const double Length = (Strokes[0].RegionEnd.X - Strokes[0].RegionStart.X) * RowLength;
+	const double Travel = RaceSpeedCentimetresPerSecond * FrameSeconds;
+
+	TestTrue(
+		FString::Printf(TEXT("The unsplit stroke spans the frame's travel, got %.2f cm against %.2f"), Length, Travel),
+		FMath::IsNearlyEqual(Length, Travel, 1.0));
 
 	return true;
 }

@@ -119,12 +119,17 @@ void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 	Ribbon = NewRibbon;
 
 	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Surface ribbon configured: %.1f cm of track at %.1f cm wide, %.4f cm per texel, %d x %d texels, %s"),
+		TEXT("Surface ribbon configured: %.1f cm of track at %.1f cm wide, %.4f cm per texel, ")
+		TEXT("%d x %d texels folded into %d rows of %d, allocating %d x %d, %s"),
 		Ribbon.TrackLength,
 		Ribbon.TrackWidth,
 		Ribbon.CentimetresPerTexel,
 		Ribbon.AlongTrackTexels(),
 		Ribbon.AcrossTrackTexels(),
+		Ribbon.RowCount(),
+		Ribbon.TexelsPerRow(),
+		Ribbon.AtlasWidth(),
+		Ribbon.AtlasHeight(),
 		Ribbon.bClosedLoop ? TEXT("closed loop") : TEXT("open ended"));
 
 	if (NewCentreline == nullptr)
@@ -133,13 +138,15 @@ void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 			TEXT("Surface ribbon configured without a centreline, so world-space contacts cannot be placed"));
 	}
 
-	if (!Ribbon.FitsUnfolded())
+	if (!Ribbon.FitsTheTextureCap())
 	{
 		UE_LOG(LogRacetrackSurface, Error,
-			TEXT("Surface ribbon needs %d texels along the track but a single row holds %d. ")
-			TEXT("Folding into rows is not implemented, so this ribbon cannot be allocated."),
-			Ribbon.AlongTrackTexels(),
-			FSurfaceTrackRibbon::MaximumTexelsPerRow);
+			TEXT("Surface ribbon folds to %d x %d, which exceeds the %d texel limit in one dimension. ")
+			TEXT("This ribbon cannot be allocated at %.4f cm per texel."),
+			Ribbon.AtlasWidth(),
+			Ribbon.AtlasHeight(),
+			FSurfaceTrackRibbon::MaximumTexelsPerRow,
+			Ribbon.CentimetresPerTexel);
 	}
 
 	PublishRibbonToMaterials();
@@ -261,18 +268,25 @@ void USurfaceAccumulationSubsystem::AppendStroke(
 		return;
 	}
 
+	const double FromAlongTrack = Ribbon.NormalisedAlongTrack(FromDistance);
+	const double ToAlongTrack = Ribbon.NormalisedAlongTrack(ToDistance);
+	const int32 RowIndex = Ribbon.RowIndexAt((FromAlongTrack + ToAlongTrack) * 0.5);
+
 	FSurfaceBrushStroke Stroke;
 
-	Stroke.RegionStart = FVector2D(
-		Ribbon.NormalisedAlongTrack(FromDistance),
+	Stroke.RegionStart = Ribbon.RibbonToAtlasInRow(
+		RowIndex,
+		FromAlongTrack,
 		FSurfaceTrackRibbon::NormalisedAcrossTrack(FromAlpha));
 
-	Stroke.RegionEnd = FVector2D(
-		Ribbon.NormalisedAlongTrack(ToDistance),
+	Stroke.RegionEnd = Ribbon.RibbonToAtlasInRow(
+		RowIndex,
+		ToAlongTrack,
 		FSurfaceTrackRibbon::NormalisedAcrossTrack(ToAlpha));
 
 	Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(Contact.ContactWidth));
 	Stroke.Intensity = RacetrackSurfaceMapping::SlipToExposure(Contact.SlipAmount, GetDepositionScale());
+	Stroke.RowIndex = RowIndex;
 	Stroke.Channel = Contact.Channel;
 
 	OutStrokes.Add(Stroke);
@@ -293,42 +307,58 @@ void USurfaceAccumulationSubsystem::BuildStrokes(
 		-Length,
 		Length);
 
-	const double UnwrappedStartDistance = EndDistance - Travel;
+	const double StartDistance = Ribbon.bClosedLoop
+		? EndDistance - Travel
+		: FMath::Clamp(EndDistance - Travel, 0.0, Length);
+
 	const double StartAlpha = EndAlpha - Contact.LateralOffsetAlphaPerSecond * DeltaSeconds;
 
-	const bool bCrossesSeam = Ribbon.bClosedLoop
-		&& (UnwrappedStartDistance < 0.0 || UnwrappedStartDistance > Length);
+	const double Span = EndDistance - StartDistance;
+	const double RowLength = Ribbon.RowLength();
 
-	if (!bCrossesSeam)
+	TArray<double, TInlineAllocator<8>> Boundaries;
+	Boundaries.Add(0.0);
+
+	if (FMath::Abs(Span) > UE_DOUBLE_SMALL_NUMBER)
 	{
+		const double Step = Span > 0.0 ? 1.0 : -1.0;
+
+		const double FirstRow = Span > 0.0
+			? FMath::FloorToDouble(StartDistance / RowLength) + 1.0
+			: FMath::CeilToDouble(StartDistance / RowLength) - 1.0;
+
+		for (double Row = FirstRow;
+			Span > 0.0 ? Row * RowLength < EndDistance : Row * RowLength > EndDistance;
+			Row += Step)
+		{
+			const double Fraction = (Row * RowLength - StartDistance) / Span;
+
+			if (Fraction > UE_DOUBLE_SMALL_NUMBER && Fraction < 1.0 - UE_DOUBLE_SMALL_NUMBER)
+			{
+				Boundaries.Add(Fraction);
+			}
+		}
+	}
+
+	Boundaries.Add(1.0);
+
+	for (int32 Piece = 0; Piece + 1 < Boundaries.Num(); ++Piece)
+	{
+		const double FromFraction = Boundaries[Piece];
+		const double ToFraction = Boundaries[Piece + 1];
+
+		const double FromDistance = StartDistance + Span * FromFraction;
+		const double ToDistance = StartDistance + Span * ToFraction;
+
+		const double LapsBack = FMath::FloorToDouble((FromDistance + ToDistance) * 0.5 / Length);
+
 		AppendStroke(
 			Contact,
-			FMath::Clamp(UnwrappedStartDistance, 0.0, Length),
-			StartAlpha,
-			EndDistance,
-			EndAlpha,
+			FromDistance - LapsBack * Length,
+			StartAlpha + (EndAlpha - StartAlpha) * FromFraction,
+			ToDistance - LapsBack * Length,
+			StartAlpha + (EndAlpha - StartAlpha) * ToFraction,
 			OutStrokes);
-
-		return;
-	}
-
-	const double SeamDistance = Travel > 0.0 ? 0.0 : Length;
-
-	const double SeamFraction = FMath::Abs(Travel) > UE_DOUBLE_SMALL_NUMBER
-		? FMath::Clamp((SeamDistance - UnwrappedStartDistance) / Travel, 0.0, 1.0)
-		: 0.0;
-
-	const double SeamAlpha = StartAlpha + (EndAlpha - StartAlpha) * SeamFraction;
-
-	if (Travel > 0.0)
-	{
-		AppendStroke(Contact, UnwrappedStartDistance + Length, StartAlpha, Length, SeamAlpha, OutStrokes);
-		AppendStroke(Contact, 0.0, SeamAlpha, EndDistance, EndAlpha, OutStrokes);
-	}
-	else
-	{
-		AppendStroke(Contact, UnwrappedStartDistance - Length, StartAlpha, 0.0, SeamAlpha, OutStrokes);
-		AppendStroke(Contact, Length, SeamAlpha, EndDistance, EndAlpha, OutStrokes);
 	}
 }
 
