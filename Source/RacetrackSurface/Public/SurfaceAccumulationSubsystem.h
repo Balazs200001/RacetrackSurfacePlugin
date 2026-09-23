@@ -28,6 +28,8 @@ public:
 		RETURN_QUICK_DECLARE_CYCLE_STAT(USurfaceAccumulationSubsystem, STATGROUP_Tickables);
 	}
 
+	static float GetDepositionScale();
+
 	void ConfigureTrackRibbon(const USplineComponent* NewCentreline, const FSurfaceTrackRibbon& NewRibbon);
 
 	const FSurfaceTrackRibbon& GetRibbon() const

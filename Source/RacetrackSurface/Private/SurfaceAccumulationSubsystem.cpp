@@ -20,6 +20,11 @@ namespace
 		ECVF_Default);
 }
 
+float USurfaceAccumulationSubsystem::GetDepositionScale()
+{
+	return CVarDepositionScale.GetValueOnGameThread();
+}
+
 void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -267,8 +272,7 @@ void USurfaceAccumulationSubsystem::AppendStroke(
 		FSurfaceTrackRibbon::NormalisedAcrossTrack(ToAlpha));
 
 	Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(Contact.ContactWidth));
-	Stroke.Intensity = RacetrackSurfaceMapping::SlipToExposure(
-		Contact.SlipAmount, CVarDepositionScale.GetValueOnGameThread());
+	Stroke.Intensity = RacetrackSurfaceMapping::SlipToExposure(Contact.SlipAmount, GetDepositionScale());
 	Stroke.Channel = Contact.Channel;
 
 	OutStrokes.Add(Stroke);
