@@ -118,33 +118,44 @@ bool FSurfaceFoldedRibbonPaintsIntoTheRowItBelongsTo::RunTest(const FString& Par
 
 	float FirstRowInk = 0.0f;
 	float SecondRowInk = 0.0f;
-	int32 PeakTexel = 0;
+	double WeightedTexel = 0.0;
+	double TotalInk = 0.0;
 
 	for (int32 Texel = 0; Texel < Band.Num(); ++Texel)
 	{
-		if (Band[Texel].G > Band[PeakTexel].G)
-		{
-			PeakTexel = Texel;
-		}
+		const float Ink = Band[Texel].G;
+
+		WeightedTexel += (Texel + 0.5) * Ink;
+		TotalInk += Ink;
 
 		if (Texel < RowHeight)
 		{
-			FirstRowInk = FMath::Max(FirstRowInk, Band[Texel].G);
+			FirstRowInk = FMath::Max(FirstRowInk, Ink);
 		}
 		else
 		{
-			SecondRowInk = FMath::Max(SecondRowInk, Band[Texel].G);
+			SecondRowInk = FMath::Max(SecondRowInk, Ink);
 		}
 	}
 
+	if (TotalInk <= 0.0)
+	{
+		AddError(TEXT("The column carries no ink at all, so the fold could not be checked."));
+		Buffer->Release();
+		return false;
+	}
+
+	const double InkCentre = WeightedTexel / TotalInk;
+
 	AddInfo(FString::Printf(
-		TEXT("Column %d of a %d x %d atlas: first row peaks at %.6f, second row peaks at %.6f, brightest texel is %d"),
+		TEXT("Column %d of a %d x %d atlas: first row peaks at %.6f, second row peaks at %.6f, the ink centres "
+			"on texel %.2f"),
 		Column,
 		Ribbon.AtlasWidth(),
 		Ribbon.AtlasHeight(),
 		FirstRowInk,
 		SecondRowInk,
-		PeakTexel));
+		InkCentre));
 
 	TestTrue(
 		FString::Printf(TEXT("The second row carries the mark, peaking at %.6f"), SecondRowInk),
@@ -157,14 +168,14 @@ bool FSurfaceFoldedRibbonPaintsIntoTheRowItBelongsTo::RunTest(const FString& Par
 			SecondRowInk),
 		FirstRowInk <= SecondRowInk * 0.01f);
 
-	const int32 ExpectedPeak = FMath::RoundToInt32(Strokes[0].RegionEnd.Y * Ribbon.AtlasHeight());
+	const double ExpectedCentre = Strokes[0].RegionEnd.Y * Ribbon.AtlasHeight();
 
 	TestTrue(
 		FString::Printf(
-			TEXT("The mark sits where the fold predicted, brightest at texel %d against %d"),
-			PeakTexel,
-			ExpectedPeak),
-		FMath::Abs(PeakTexel - ExpectedPeak) <= 2);
+			TEXT("The mark centres where the fold predicted, on texel %.2f against %.2f"),
+			InkCentre,
+			ExpectedCentre),
+		FMath::Abs(InkCentre - ExpectedCentre) <= 1.0);
 
 	Buffer->Release();
 
