@@ -398,7 +398,11 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 			const FVector2D Delta = End - Start;
 
 			const float Width = FMath::Max(Stroke.WidthInTexels, 1.0f);
-			const float Length = static_cast<float>(Delta.Size()) + Width;
+			const float Travel = static_cast<float>(Delta.Size());
+			const float Length = Travel + Width;
+
+			const float SweptShare = Travel > UE_SMALL_NUMBER ? Travel / Length : 1.0f;
+			const float DepositedIntensity = Stroke.Intensity * SweptShare;
 
 			const FVector2D QuadSize(Length, Width);
 			const FVector2D Centre = (Start + End) * 0.5;
@@ -411,8 +415,8 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 			const FLinearColor Mask = ChannelMask(Stroke.Channel);
 
 			const FLinearColor RenderColour = bSaturating
-				? FLinearColor(Mask.R, Mask.G, Mask.B, Stroke.Intensity)
-				: Mask * Stroke.Intensity;
+				? FLinearColor(Mask.R, Mask.G, Mask.B, DepositedIntensity)
+				: Mask * DepositedIntensity;
 
 			Canvas->K2_DrawTexture(
 				Brush,

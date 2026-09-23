@@ -162,4 +162,113 @@ bool FSurfacePaintedStrokeWidth::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceDepositPerPassIsIndependentOfFrameRate,
+	"RacetrackSurface.Accumulator.DepositPerPassIsIndependentOfFrameRate",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceDepositPerPassIsIndependentOfFrameRate::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddWarning(TEXT("Skipped: build cannot render."));
+		return true;
+	}
+
+	UWorld* World = FindRenderableWorld();
+
+	if (World == nullptr)
+	{
+		AddError(TEXT("No renderable world available."));
+		return false;
+	}
+
+	const FSurfaceTrackRibbon Ribbon = MakeRibbonAtDensity(9.765625);
+	const double LapMetres = Ribbon.TrackLength;
+	const double SweptFraction = 0.6;
+
+	AddInfo(TEXT("frames over the sweep | travel per frame in texels | mean exposure across the swept span"));
+
+	TArray<float> PeaksByFrameRate;
+
+	for (const int32 FrameCount : { 16, 64, 256 })
+	{
+		TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
+
+		if (!Buffer->Allocate(World, Ribbon, RTF_RGBA16f))
+		{
+			AddError(TEXT("Failed to allocate the buffer."));
+			continue;
+		}
+
+		TArray<FSurfaceBrushStroke> Strokes;
+		Strokes.Reserve(FrameCount);
+
+		for (int32 Frame = 0; Frame < FrameCount; ++Frame)
+		{
+			FSurfaceBrushStroke Stroke;
+			Stroke.RegionStart = FVector2D(0.2 + SweptFraction * Frame / FrameCount, 0.5);
+			Stroke.RegionEnd = FVector2D(0.2 + SweptFraction * (Frame + 1) / FrameCount, 0.5);
+			Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(ContactWidthCentimetres));
+			Stroke.Intensity = 0.01f;
+			Stroke.Channel = EAccumulationChannel::SkidMark;
+
+			Strokes.Add(Stroke);
+		}
+
+		Buffer->PaintStrokes(World, Strokes);
+		FlushRenderingCommands();
+
+		constexpr int32 SpanTexels = 120;
+
+		const TArray<FLinearColor> Span = UKismetRenderingLibrary::ReadRenderTargetRawPixelArea(
+			World, Buffer->GetTarget(), BufferResolution / 2 - SpanTexels / 2, BufferResolution / 2,
+			SpanTexels, 1, false);
+
+		float Total = 0.0f;
+
+		for (const FLinearColor& Sample : Span)
+		{
+			Total += Sample.G;
+		}
+
+		const float Mean = Span.Num() > 0 ? Total / Span.Num() : 0.0f;
+		const double TravelTexels = SweptFraction * BufferResolution / FrameCount;
+
+		PeaksByFrameRate.Add(Mean);
+
+		AddInfo(FString::Printf(TEXT("%d | %.2f | %.5f"), FrameCount, TravelTexels, Mean));
+
+		Buffer->Release();
+	}
+
+	if (PeaksByFrameRate.Num() < 2)
+	{
+		AddError(TEXT("Not enough samples to compare."));
+		return false;
+	}
+
+	float Lowest = PeaksByFrameRate[0];
+	float Highest = PeaksByFrameRate[0];
+
+	for (const float Peak : PeaksByFrameRate)
+	{
+		Lowest = FMath::Min(Lowest, Peak);
+		Highest = FMath::Max(Highest, Peak);
+	}
+
+	AddInfo(FString::Printf(
+		TEXT("Mean deposit per pass spans %.5f to %.5f, a factor of %.3f across a 16-fold frame rate range"),
+		Lowest,
+		Highest,
+		Lowest > 0.0f ? Highest / Lowest : 0.0f));
+
+	TestTrue(
+		TEXT("One pass over a texel deposits the same whatever frame rate it was drawn at"),
+		Lowest > 0.0f && Highest / Lowest < 1.25f);
+
+	return true;
+}
+
 #endif

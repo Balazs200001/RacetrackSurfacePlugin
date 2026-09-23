@@ -308,18 +308,29 @@ bool FSurfaceLinearGammaOnWrite::RunTest(const FString& Parameters)
 
 	const FLinearColor Stored = ReadCentreTexel(World, Buffer->GetTarget());
 
+	Buffer->Clear(World);
+	Buffer->PaintStrokes(World, MakeCentredStroke(Ribbon, Intensity * 0.5f, EAccumulationChannel::SkidMark));
+	FlushRenderingCommands();
+
+	const FLinearColor StoredHalf = ReadCentreTexel(World, Buffer->GetTarget());
+
 	const double GammaEncoded = FMath::Pow(Intensity, 1.0 / 2.2);
 
+	const double StoredRatio = StoredHalf.G > UE_SMALL_NUMBER ? Stored.G / StoredHalf.G : 0.0;
+
 	AddInfo(FString::Printf(
-		TEXT("One additive pass at intensity %.3f stored %.4f. Linear would be %.4f, 2.2-encoded would be %.4f"),
+		TEXT("Additive passes at intensity %.3f and %.3f stored %.4f and %.4f, a ratio of %.3f. ")
+		TEXT("Linear encoding gives 2.000, a 2.2 encoding would give %.3f"),
 		Intensity,
+		Intensity * 0.5f,
 		Stored.G,
-		Intensity,
-		GammaEncoded));
+		StoredHalf.G,
+		StoredRatio,
+		FMath::Pow(2.0, 1.0 / 2.2)));
 
 	TestTrue(
-		TEXT("An additive pass stores its linear intensity, not a gamma-encoded one"),
-		FMath::Abs(Stored.G - Intensity) < 0.02f);
+		TEXT("Halving the intensity halves the stored value, so the write path is linear not gamma encoded"),
+		FMath::Abs(StoredRatio - 2.0) < 0.1);
 
 	Buffer->Release();
 
