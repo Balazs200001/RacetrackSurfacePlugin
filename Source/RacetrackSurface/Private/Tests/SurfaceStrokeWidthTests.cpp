@@ -65,7 +65,7 @@ bool FSurfacePaintedStrokeWidth::RunTest(const FString& Parameters)
 
 	AddInfo(TEXT("cm/texel | quad texels | peak | inked texels | inked cm | half-max texels | half-max cm"));
 
-	for (const double CentimetresPerTexel : { 9.765625, 2.44140625 })
+	for (const double CentimetresPerTexel : { 9.765625, 3.125, 2.44140625 })
 	{
 		const FSurfaceTrackRibbon Ribbon = MakeRibbonAtDensity(CentimetresPerTexel);
 
