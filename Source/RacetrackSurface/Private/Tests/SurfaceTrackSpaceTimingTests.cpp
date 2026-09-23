@@ -19,8 +19,10 @@ namespace
 	constexpr double CircuitTrackWidth = 1200.0;
 	constexpr double FrameMillisecondsAtSixtyHertz = 1000.0 / 60.0;
 
-	const int32 SplinePointCandidates[] = { 18, 64, 256, 1024 };
+	const int32 SplinePointCandidates[] = { 18, 64, 128, 192, 256, 384, 1024 };
 	const int32 ContactCountCandidates[] = { 4, 80 };
+	constexpr int32 CrossoverContactCount = 80;
+	constexpr double CrossoverBudgetMilliseconds = 1.0;
 
 	TArray<FVector> MakeContactPositions(const USplineComponent& Circuit, int32 ContactCount)
 	{
@@ -40,6 +42,30 @@ namespace
 
 		return Positions;
 	}
+
+	double InterpolateCrossoverPointCount(
+		const TArray<int32>& PointCounts,
+		const TArray<double>& Costs,
+		double BudgetMilliseconds)
+	{
+		for (int32 Index = 1; Index < PointCounts.Num(); ++Index)
+		{
+			const double Below = Costs[Index - 1];
+			const double Above = Costs[Index];
+
+			if (Below >= BudgetMilliseconds || Above < BudgetMilliseconds)
+			{
+				continue;
+			}
+
+			const double Span = Above - Below;
+			const double Fraction = Span > UE_DOUBLE_SMALL_NUMBER ? (BudgetMilliseconds - Below) / Span : 0.0;
+
+			return PointCounts[Index - 1] + Fraction * (PointCounts[Index] - PointCounts[Index - 1]);
+		}
+
+		return 0.0;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -52,6 +78,9 @@ bool FTrackSpaceConversionCost::RunTest(const FString& Parameters)
 	AddInfo(TEXT("Spline points | Contacts | Full search | per contact | Known segment | per contact | Speedup"));
 
 	double WorstHarnessScaleCost = 0.0;
+
+	TArray<int32> CrossoverPointCounts;
+	TArray<double> CrossoverCosts;
 
 	for (const int32 PointCount : SplinePointCandidates)
 	{
@@ -123,6 +152,12 @@ bool FTrackSpaceConversionCost::RunTest(const FString& Parameters)
 				WorstHarnessScaleCost = FMath::Max(WorstHarnessScaleCost, SearchMedian);
 			}
 
+			if (ContactCount == CrossoverContactCount)
+			{
+				CrossoverPointCounts.Add(PointCount);
+				CrossoverCosts.Add(SearchMedian);
+			}
+
 			TestTrue(
 				TEXT("The timed work was not optimised away"),
 				SearchAccumulator != 0.0 && SegmentAccumulator != 0.0);
@@ -133,6 +168,25 @@ bool FTrackSpaceConversionCost::RunTest(const FString& Parameters)
 		TEXT("Worst cost at harness spline complexity: %.4f ms, %.2f %% of a 60 Hz frame"),
 		WorstHarnessScaleCost,
 		100.0 * WorstHarnessScaleCost / FrameMillisecondsAtSixtyHertz));
+
+	const double CrossoverPointCount = InterpolateCrossoverPointCount(
+		CrossoverPointCounts, CrossoverCosts, CrossoverBudgetMilliseconds);
+
+	if (CrossoverPointCount > 0.0)
+	{
+		AddInfo(FString::Printf(
+			TEXT("Full search at %d contacts reaches %.1f ms at %.0f spline points"),
+			CrossoverContactCount,
+			CrossoverBudgetMilliseconds,
+			CrossoverPointCount));
+	}
+	else
+	{
+		AddInfo(FString::Printf(
+			TEXT("Full search at %d contacts does not reach %.1f ms anywhere in the sampled range"),
+			CrossoverContactCount,
+			CrossoverBudgetMilliseconds));
+	}
 
 	if (WorstHarnessScaleCost > 1.0)
 	{
