@@ -19,7 +19,7 @@ namespace
 	constexpr double CircuitTrackWidth = 1200.0;
 	constexpr double FrameMillisecondsAtSixtyHertz = 1000.0 / 60.0;
 
-	const int32 SplinePointCandidates[] = { 18, 64, 128, 192, 256, 384, 1024 };
+	const int32 SplinePointCandidates[] = { 18, 64, 77, 128, 192, 256, 384, 1024 };
 	const int32 ContactCountCandidates[] = { 4, 80 };
 	constexpr int32 CrossoverContactCount = 80;
 	constexpr double CrossoverBudgetMilliseconds = 1.0;
