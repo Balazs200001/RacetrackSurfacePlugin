@@ -31,13 +31,13 @@ struct FSurfaceTrackRibbon
 	static constexpr int32 MaximumTexelsPerRow = 16384;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "100.0"))
-	double TrackLength = 30000.0;
+	double TrackLength = 180000.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "100.0"))
-	double TrackWidth = 1200.0;
+	double TrackWidth = 800.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "0.5"))
-	double CentimetresPerTexel = 9.765625;
+	double CentimetresPerTexel = 3.125;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
 	bool bClosedLoop = true;
@@ -57,19 +57,74 @@ struct FSurfaceTrackRibbon
 		return FMath::Max(FMath::CeilToInt32(TrackWidth / SafeCentimetresPerTexel()), 1);
 	}
 
-	bool FitsUnfolded() const
+	int32 RowCount() const
 	{
-		return AlongTrackTexels() <= MaximumTexelsPerRow;
+		return FMath::DivideAndRoundUp(AlongTrackTexels(), MaximumTexelsPerRow);
 	}
 
-	int64 TexelCount() const
+	int32 TexelsPerRow() const
 	{
-		return static_cast<int64>(AlongTrackTexels()) * static_cast<int64>(AcrossTrackTexels());
+		return FMath::DivideAndRoundUp(AlongTrackTexels(), RowCount());
+	}
+
+	int32 AtlasWidth() const
+	{
+		return TexelsPerRow();
+	}
+
+	int32 AtlasHeight() const
+	{
+		return RowCount() * AcrossTrackTexels();
+	}
+
+	int64 AtlasTexelCount() const
+	{
+		return static_cast<int64>(AtlasWidth()) * static_cast<int64>(AtlasHeight());
+	}
+
+	bool FitsUnfolded() const
+	{
+		return RowCount() == 1;
+	}
+
+	bool FitsTheTextureCap() const
+	{
+		return AtlasWidth() <= MaximumTexelsPerRow && AtlasHeight() <= MaximumTexelsPerRow;
 	}
 
 	double MaximumUnfoldedTrackLength() const
 	{
 		return static_cast<double>(MaximumTexelsPerRow) * SafeCentimetresPerTexel();
+	}
+
+	double RowLength() const
+	{
+		return FMath::Max(TrackLength, UE_DOUBLE_SMALL_NUMBER) / RowCount();
+	}
+
+	int32 RowIndexAt(double NormalisedAlongTrackValue) const
+	{
+		return FMath::Clamp(
+			FMath::FloorToInt32(NormalisedAlongTrackValue * RowCount()),
+			0,
+			RowCount() - 1);
+	}
+
+	FVector2D RibbonToAtlasInRow(int32 RowIndex, double NormalisedAlongTrackValue, double NormalisedAcrossTrackValue) const
+	{
+		const double Rows = RowCount();
+
+		return FVector2D(
+			NormalisedAlongTrackValue * Rows - RowIndex,
+			(RowIndex + NormalisedAcrossTrackValue) / Rows);
+	}
+
+	FVector2D RibbonToAtlas(double NormalisedAlongTrackValue, double NormalisedAcrossTrackValue) const
+	{
+		return RibbonToAtlasInRow(
+			RowIndexAt(NormalisedAlongTrackValue),
+			NormalisedAlongTrackValue,
+			NormalisedAcrossTrackValue);
 	}
 
 	double WrapDistance(double DistanceAlongCentreline) const

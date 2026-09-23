@@ -250,73 +250,173 @@ bool FTrackRibbonTexelExtentsFollowTrackDimensions::RunTest(const FString& Param
 	Harness.TrackLength = 30921.0;
 	Harness.TrackWidth = 1200.0;
 
-	TestTrue(TEXT("The B4 density is carried over unchanged"), FMath::IsNearlyEqual(Harness.CentimetresPerTexel, 20000.0 / 2048.0));
-	TestEqual(TEXT("The harness circuit is 3167 texels along"), Harness.AlongTrackTexels(), 3167);
-	TestEqual(TEXT("The harness circuit is 123 texels across"), Harness.AcrossTrackTexels(), 123);
+	TestTrue(TEXT("The C8 density is the default"), FMath::IsNearlyEqual(Harness.CentimetresPerTexel, 3.125));
+	TestEqual(TEXT("The harness circuit is 9895 texels along"), Harness.AlongTrackTexels(), 9895);
+	TestEqual(TEXT("The harness circuit is 384 texels across"), Harness.AcrossTrackTexels(), 384);
+	TestEqual(TEXT("The harness circuit is short enough to need one row"), Harness.RowCount(), 1);
 
-	const int64 HarnessBytes = Harness.TexelCount() * 8;
+	const int64 HarnessBytes = Harness.AtlasTexelCount() * 8;
 
 	AddInfo(FString::Printf(
-		TEXT("Harness circuit %.0f cm by %.0f cm at %.4f cm/texel: %d x %d texels, %lld bytes (%.2f MiB) at RGBA16f"),
+		TEXT("Harness circuit %.0f cm by %.0f cm at %.4f cm/texel: %d x %d texels in %d row, allocating %d x %d, "
+			"%lld bytes (%.2f MiB) at RGBA16f"),
 		Harness.TrackLength,
 		Harness.TrackWidth,
 		Harness.CentimetresPerTexel,
 		Harness.AlongTrackTexels(),
 		Harness.AcrossTrackTexels(),
+		Harness.RowCount(),
+		Harness.AtlasWidth(),
+		Harness.AtlasHeight(),
 		HarnessBytes,
 		static_cast<double>(HarnessBytes) / (1024.0 * 1024.0)));
 
-	TestTrue(TEXT("The harness circuit costs far less than the 32 MiB square region it replaces"), HarnessBytes < 4 * 1024 * 1024);
+	TestTrue(TEXT("A one-row ribbon allocates exactly its own texel extents"),
+		Harness.AtlasWidth() == Harness.AlongTrackTexels() && Harness.AtlasHeight() == Harness.AcrossTrackTexels());
 
 	FSurfaceTrackRibbon Spa;
 	Spa.TrackLength = 700400.0;
 	Spa.TrackWidth = 1500.0;
 
-	const int64 SpaBytes = Spa.TexelCount() * 8;
+	const int64 SpaBytes = Spa.AtlasTexelCount() * 8;
 
 	AddInfo(FString::Printf(
-		TEXT("Spa %.0f cm by %.0f cm at %.4f cm/texel: %d x %d texels, %lld bytes (%.1f MB) at RGBA16f"),
+		TEXT("Real Spa %.0f cm by %.0f cm at %.4f cm/texel: %d x %d texels in %d rows of %d, allocating %d x %d, "
+			"%lld bytes (%.1f MB) at RGBA16f"),
 		Spa.TrackLength,
 		Spa.TrackWidth,
 		Spa.CentimetresPerTexel,
 		Spa.AlongTrackTexels(),
 		Spa.AcrossTrackTexels(),
+		Spa.RowCount(),
+		Spa.TexelsPerRow(),
+		Spa.AtlasWidth(),
+		Spa.AtlasHeight(),
 		SpaBytes,
 		static_cast<double>(SpaBytes) / 1.0e6));
 
-	TestTrue(TEXT("A width of 20 cm is about two texels at the carried-over density"),
-		FMath::IsNearlyEqual(Harness.WorldDistanceToTexels(20.0), 2.048, 0.001));
+	TestEqual(TEXT("Real Spa needs fourteen rows at the production density"), Spa.RowCount(), 14);
+	TestTrue(TEXT("Real Spa still fits the texture cap once folded"), Spa.FitsTheTextureCap());
+
+	TestTrue(TEXT("A width of 20 cm is 6.4 texels at the production density"),
+		FMath::IsNearlyEqual(Harness.WorldDistanceToTexels(20.0), 6.4, 0.001));
 
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FTrackRibbonRejectsTrackTooLongToFitUnfolded,
-	"RacetrackSurface.Ribbon.RejectsTrackTooLongToFitUnfolded",
+	FTrackRibbonFoldsIntoRowsBeyondTheUnfoldedLimit,
+	"RacetrackSurface.Ribbon.FoldsIntoRowsBeyondTheUnfoldedLimit",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
-bool FTrackRibbonRejectsTrackTooLongToFitUnfolded::RunTest(const FString& Parameters)
+bool FTrackRibbonFoldsIntoRowsBeyondTheUnfoldedLimit::RunTest(const FString& Parameters)
 {
 	FSurfaceTrackRibbon Ribbon;
 
 	TestEqual(TEXT("The maximum row is the hardware 2D texture limit"), FSurfaceTrackRibbon::MaximumTexelsPerRow, 16384);
 
 	TestTrue(
-		FString::Printf(TEXT("The unfolded limit is about 1600 m, got %.1f cm"), Ribbon.MaximumUnfoldedTrackLength()),
-		FMath::IsNearlyEqual(Ribbon.MaximumUnfoldedTrackLength(), 160000.0, 1.0));
+		FString::Printf(TEXT("One row reaches 512 m at the production density, got %.1f cm"), Ribbon.MaximumUnfoldedTrackLength()),
+		FMath::IsNearlyEqual(Ribbon.MaximumUnfoldedTrackLength(), 51200.0, 1.0));
 
 	Ribbon.TrackLength = Ribbon.MaximumUnfoldedTrackLength();
-	TestTrue(TEXT("A track exactly at the limit fits unfolded"), Ribbon.FitsUnfolded());
+	TestTrue(TEXT("A track exactly at the limit still needs only one row"), Ribbon.FitsUnfolded());
 	TestEqual(TEXT("A track exactly at the limit uses every texel of the row"), Ribbon.AlongTrackTexels(), 16384);
+	TestEqual(TEXT("A one-row ribbon spends the whole lap on that row"), Ribbon.TexelsPerRow(), 16384);
 
 	Ribbon.TrackLength = Ribbon.MaximumUnfoldedTrackLength() + Ribbon.CentimetresPerTexel;
-	TestFalse(TEXT("One texel past the limit does not fit unfolded"), Ribbon.FitsUnfolded());
+	TestEqual(TEXT("One texel past the limit folds into two rows"), Ribbon.RowCount(), 2);
+	TestEqual(TEXT("Two rows split the lap evenly, rounding up"), Ribbon.TexelsPerRow(), 8193);
+	TestTrue(
+		TEXT("Folding never loses along-track texels, it only rounds the last row up"),
+		Ribbon.RowCount() * Ribbon.TexelsPerRow() >= Ribbon.AlongTrackTexels());
 
-	Ribbon.TrackLength = 150000.0;
-	TestTrue(TEXT("A 1500 m circuit fits unfolded, which the square region could not hold"), Ribbon.FitsUnfolded());
+	Ribbon.TrackLength = 180000.0;
+	TestEqual(TEXT("The demo lap folds into four rows"), Ribbon.RowCount(), 4);
+	TestEqual(TEXT("The demo lap divides exactly, so no row carries slack"), Ribbon.TexelsPerRow(), 14400);
+	TestEqual(TEXT("The demo lap allocates 14400 texels wide"), Ribbon.AtlasWidth(), 14400);
+	TestEqual(TEXT("The demo lap allocates 1024 texels tall"), Ribbon.AtlasHeight(), 1024);
+	TestEqual(TEXT("The demo lap allocates 117964800 bytes at RGBA16f"), Ribbon.AtlasTexelCount() * 8, 117964800ll);
 
 	Ribbon.TrackLength = 700400.0;
-	TestFalse(TEXT("Real Spa does not fit unfolded and needs folding"), Ribbon.FitsUnfolded());
+	TestFalse(TEXT("Real Spa does not fit in one row"), Ribbon.FitsUnfolded());
+	TestEqual(TEXT("Real Spa folds into fourteen rows"), Ribbon.RowCount(), 14);
+	TestTrue(TEXT("Real Spa still fits the texture cap once folded"), Ribbon.FitsTheTextureCap());
+
+	AddInfo(FString::Printf(
+		TEXT("Real Spa at %.4f cm per texel: %d along, %d rows of %d, allocating %d x %d"),
+		Ribbon.CentimetresPerTexel,
+		Ribbon.AlongTrackTexels(),
+		Ribbon.RowCount(),
+		Ribbon.TexelsPerRow(),
+		Ribbon.AtlasWidth(),
+		Ribbon.AtlasHeight()));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTrackRibbonAtlasMappingRoundTrips,
+	"RacetrackSurface.Ribbon.AtlasMappingRoundTrips",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FTrackRibbonAtlasMappingRoundTrips::RunTest(const FString& Parameters)
+{
+	FSurfaceTrackRibbon Ribbon;
+	Ribbon.TrackLength = 180000.0;
+
+	const int32 Rows = Ribbon.RowCount();
+
+	TestEqual(TEXT("The demo lap folds into four rows"), Rows, 4);
+
+	const FVector2D LapStart = Ribbon.RibbonToAtlas(0.0, 0.5);
+
+	TestTrue(
+		TEXT("The start of the lap is the start of the first row"),
+		LapStart.Equals(FVector2D(0.0, 0.5 / Rows), UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	const FVector2D LapEnd = Ribbon.RibbonToAtlas(1.0, 0.5);
+
+	TestTrue(
+		TEXT("The end of the lap is the end of the last row, not the start of a row that does not exist"),
+		LapEnd.Equals(FVector2D(1.0, (Rows - 1 + 0.5) / Rows), UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+	for (int32 Row = 0; Row < Rows; ++Row)
+	{
+		const double RowStart = static_cast<double>(Row) / Rows;
+
+		TestEqual(
+			FString::Printf(TEXT("A coordinate just inside row %d reports row %d"), Row, Row),
+			Ribbon.RowIndexAt(RowStart + 0.5 / Rows),
+			Row);
+
+		const FVector2D AtRowStart = Ribbon.RibbonToAtlasInRow(Row, RowStart, 0.0);
+		const FVector2D AtRowEnd = Ribbon.RibbonToAtlasInRow(Row, RowStart + 1.0 / Rows, 1.0);
+
+		TestTrue(
+			FString::Printf(TEXT("Row %d starts at the left edge of the atlas"), Row),
+			FMath::IsNearlyZero(AtRowStart.X, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+		TestTrue(
+			FString::Printf(TEXT("Row %d ends at the right edge of the atlas"), Row),
+			FMath::IsNearlyEqual(AtRowEnd.X, 1.0, UE_DOUBLE_KINDA_SMALL_NUMBER));
+
+		TestTrue(
+			FString::Printf(TEXT("Row %d occupies its own band and no other"), Row),
+			AtRowStart.Y >= static_cast<double>(Row) / Rows - UE_DOUBLE_KINDA_SMALL_NUMBER
+				&& AtRowEnd.Y <= static_cast<double>(Row + 1) / Rows + UE_DOUBLE_KINDA_SMALL_NUMBER);
+	}
+
+	FSurfaceTrackRibbon Unfolded;
+	Unfolded.TrackLength = 30000.0;
+
+	TestEqual(TEXT("A short lap needs one row"), Unfolded.RowCount(), 1);
+
+	const FVector2D Midway = Unfolded.RibbonToAtlas(0.25, 0.75);
+
+	TestTrue(
+		TEXT("One row makes the fold the identity, so the unfolded path is not a special case"),
+		Midway.Equals(FVector2D(0.25, 0.75), UE_DOUBLE_KINDA_SMALL_NUMBER));
 
 	return true;
 }
