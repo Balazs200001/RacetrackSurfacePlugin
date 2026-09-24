@@ -64,7 +64,7 @@ public:
 
 	int64 GetAllocatedBytes() const;
 
-	static FLinearColor ChannelMask(EAccumulationChannel Channel);
+	static RACETRACKSURFACE_API FLinearColor ChannelMask(EAccumulationChannel Channel);
 
 private:
 	void EnsureBrush();
