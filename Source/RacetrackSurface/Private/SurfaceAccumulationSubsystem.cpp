@@ -2,6 +2,8 @@
 
 #include "Components/SplineComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "GameFramework/WorldSettings.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -13,16 +15,40 @@ DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
 namespace
 {
+	float PlayingWorldTimeDilation()
+	{
+		if (GEngine == nullptr)
+		{
+			return 1.0f;
+		}
+
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			const bool bPlaying = Context.WorldType == EWorldType::Game || Context.WorldType == EWorldType::PIE;
+
+			if (bPlaying && Context.World() != nullptr && Context.World()->GetWorldSettings() != nullptr)
+			{
+				return Context.World()->GetWorldSettings()->GetEffectiveTimeDilation();
+			}
+		}
+
+		return 1.0f;
+	}
+
 	void AnnounceOnScreen(FName MessageName, const FString& Text)
 	{
-		if (GEngine != nullptr)
+		if (GEngine == nullptr)
 		{
-			GEngine->AddOnScreenDebugMessage(
-				static_cast<uint64>(GetTypeHash(MessageName)),
-				6.0f,
-				FColor::White,
-				Text);
+			return;
 		}
+
+		const float MessageSeconds = 6.0f * FMath::Max(PlayingWorldTimeDilation(), UE_SMALL_NUMBER);
+
+		GEngine->AddOnScreenDebugMessage(
+			static_cast<uint64>(GetTypeHash(MessageName)),
+			MessageSeconds,
+			FColor::White,
+			Text);
 	}
 
 	void AnnounceDepositionScale(IConsoleVariable* Variable)
