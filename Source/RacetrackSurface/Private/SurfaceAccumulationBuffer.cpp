@@ -214,6 +214,11 @@ bool USurfaceAccumulationBuffer::Allocate(
 		return true;
 	}
 
+	if (Target != nullptr)
+	{
+		FlushRenderingCommands();
+	}
+
 	Release();
 
 	Target = UKismetRenderingLibrary::CreateRenderTarget2D(
@@ -268,12 +273,6 @@ void USurfaceAccumulationBuffer::Release()
 	{
 		UKismetRenderingLibrary::ReleaseRenderTarget2D(Target);
 		Target = nullptr;
-	}
-
-	if (GatherTarget != nullptr)
-	{
-		UKismetRenderingLibrary::ReleaseRenderTarget2D(GatherTarget);
-		GatherTarget = nullptr;
 	}
 
 	AllocatedWidth = 0;
@@ -488,7 +487,7 @@ UTextureRenderTarget2D* USurfaceAccumulationBuffer::EnsureGatherTarget(UObject* 
 	GatherTarget = UKismetRenderingLibrary::CreateRenderTarget2D(
 		WorldContext,
 		Width,
-		1,
+		GatherTargetHeight,
 		RTF_RGBA16f,
 		FLinearColor::Black,
 		false,
@@ -543,6 +542,10 @@ void USurfaceAccumulationBuffer::GatherTaps(
 	{
 		const FScopedCanvasFlushDeferral FlushDeferral(Canvas);
 
+		const FVector2D SourceTexel(
+			1.0 / FMath::Max(Target->SizeX, 1),
+			1.0 / FMath::Max(Target->SizeY, 1));
+
 		for (const FSurfaceQueryTap& Tap : Taps)
 		{
 			if (Tap.SlotIndex < 0 || Tap.SlotIndex >= Destination->SizeX || Tap.Weight <= 0.0f)
@@ -554,8 +557,8 @@ void USurfaceAccumulationBuffer::GatherTaps(
 				Target,
 				FVector2D(Tap.SlotIndex, 0),
 				FVector2D::UnitVector,
-				Tap.AtlasUV,
-				FVector2D::ZeroVector,
+				Tap.AtlasUV - SourceTexel * 0.5,
+				SourceTexel,
 				FLinearColor(Tap.Weight, Tap.Weight, Tap.Weight, 1.0f),
 				BLEND_Additive,
 				0.0f,
