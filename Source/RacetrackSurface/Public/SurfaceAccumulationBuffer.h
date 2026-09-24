@@ -16,6 +16,8 @@ class USurfaceAccumulationBuffer : public UObject
 	GENERATED_BODY()
 
 public:
+	static constexpr int32 GatherTargetHeight = 1;
+
 	bool Allocate(UObject* WorldContext, int32 Width, int32 Height, ETextureRenderTargetFormat Format = RTF_RGBA16f, int32 RowCount = 1);
 
 	bool Allocate(UObject* WorldContext, const FSurfaceTrackRibbon& Ribbon, ETextureRenderTargetFormat Format = RTF_RGBA16f);
