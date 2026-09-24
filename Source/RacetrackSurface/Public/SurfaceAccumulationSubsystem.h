@@ -4,6 +4,7 @@
 #include "Stats/Stats.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "RacetrackSurfaceTypes.h"
+#include "SurfaceAccumulationMapping.h"
 #include "SurfaceTrackRibbon.h"
 #include "SurfaceAccumulationSubsystem.generated.h"
 
@@ -29,6 +30,27 @@ public:
 	}
 
 	static float GetDepositionScale();
+
+	static float GetDecayRate();
+
+	static float GetDecayStepsPerHalfLife();
+
+	void SetDecayHalfLifeSeconds(float Seconds);
+
+	float GetDecayHalfLifeSeconds() const
+	{
+		return DecayHalfLifeSeconds;
+	}
+
+	float GetDecayProgressInHalfLives() const
+	{
+		return DecayProgressInHalfLives;
+	}
+
+	int32 GetDecayPassCount() const
+	{
+		return DecayPassCount;
+	}
 
 	void ConfigureTrackRibbon(const USplineComponent* NewCentreline, const FSurfaceTrackRibbon& NewRibbon);
 
@@ -103,6 +125,8 @@ public:
 private:
 	void FlushPendingContacts(float DeltaSeconds);
 
+	void ApplyDecayWhenAStepHasElapsed(float DeltaSeconds);
+
 	bool EnsureBuffer();
 
 	void PublishRibbonToMaterials();
@@ -129,4 +153,10 @@ private:
 	int32 ContactsDiscardedOutsideRibbon = 0;
 
 	int32 ContactsDiscardedWithoutCentreline = 0;
+
+	float DecayHalfLifeSeconds = RacetrackSurfaceMapping::FallbackDecayHalfLifeSeconds;
+
+	float DecayProgressInHalfLives = 0.0f;
+
+	int32 DecayPassCount = 0;
 };

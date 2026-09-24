@@ -32,6 +32,23 @@ namespace
 			FString::Printf(TEXT("Deposition now %.2fx the derived rate"), Variable->GetFloat()));
 	}
 
+	void AnnounceDecayRate(IConsoleVariable* Variable)
+	{
+		const float Rate = Variable->GetFloat();
+
+		if (Rate <= 0.0f)
+		{
+			AnnounceOnScreen(
+				TEXT("RacetrackSurface.DecayRate"),
+				TEXT("Decay now off, so nothing fades and the surface is the accumulation baseline"));
+			return;
+		}
+
+		AnnounceOnScreen(
+			TEXT("RacetrackSurface.DecayRate"),
+			FString::Printf(TEXT("Decay now %.2fx the calibrated fade"), Rate));
+	}
+
 	TAutoConsoleVariable<float> CVarDepositionScale(
 		TEXT("r.RacetrackSurface.DepositionScale"),
 		1.0f,
@@ -40,11 +57,51 @@ namespace
 		TEXT("worth of rubber accumulate in a few laps without time compression."),
 		FConsoleVariableDelegate::CreateStatic(&AnnounceDepositionScale),
 		ECVF_Default);
+
+	TAutoConsoleVariable<float> CVarDecayRate(
+		TEXT("r.RacetrackSurface.DecayRate"),
+		0.0f,
+		TEXT("Multiplies the decay rate constant derived from the half-life in SurfaceAccumulationMapping.h. ")
+		TEXT("0 skips the decay pass entirely, which is the state every measurement before C10 was taken in. ")
+		TEXT("1 is the derived half-life, measured against dilated world time so a lap loses the same rubber ")
+		TEXT("whatever speed you watch it at."),
+		FConsoleVariableDelegate::CreateStatic(&AnnounceDecayRate),
+		ECVF_Default);
+
+	TAutoConsoleVariable<float> CVarDecayStepsPerHalfLife(
+		TEXT("r.RacetrackSurface.DecayStepsPerHalfLife"),
+		RacetrackSurfaceMapping::DecayStepsPerHalfLife,
+		TEXT("How many decay passes make up one half-life. The retention each pass applies is the same ")
+		TEXT("whatever the rate, so this trades pass frequency against how finely the fade is quantised. ")
+		TEXT("Raising it far past the default makes each retention too close to 1 to survive half-float ")
+		TEXT("rounding, at which point the pass costs its full price and changes nothing."),
+		ECVF_Default);
 }
 
 float USurfaceAccumulationSubsystem::GetDepositionScale()
 {
 	return CVarDepositionScale.GetValueOnGameThread();
+}
+
+float USurfaceAccumulationSubsystem::GetDecayRate()
+{
+	return CVarDecayRate.GetValueOnGameThread();
+}
+
+float USurfaceAccumulationSubsystem::GetDecayStepsPerHalfLife()
+{
+	return FMath::Max(CVarDecayStepsPerHalfLife.GetValueOnGameThread(), 1.0f);
+}
+
+void USurfaceAccumulationSubsystem::SetDecayHalfLifeSeconds(float Seconds)
+{
+	DecayHalfLifeSeconds = FMath::Max(Seconds, UE_SMALL_NUMBER);
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Decay half-life set to %.1f s of track time, so one step of %.0f retains %.6f"),
+		DecayHalfLifeSeconds,
+		GetDecayStepsPerHalfLife(),
+		RacetrackSurfaceMapping::DecayRetentionForProgress(1.0f / GetDecayStepsPerHalfLife()));
 }
 
 void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -137,7 +194,38 @@ void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	ApplyDecayWhenAStepHasElapsed(DeltaTime);
 	FlushPendingContacts(DeltaTime);
+}
+
+void USurfaceAccumulationSubsystem::ApplyDecayWhenAStepHasElapsed(float DeltaSeconds)
+{
+	const float Rate = GetDecayRate();
+
+	if (Rate <= 0.0f)
+	{
+		DecayProgressInHalfLives = 0.0f;
+		return;
+	}
+
+	DecayProgressInHalfLives +=
+		RacetrackSurfaceMapping::ElapsedToDecayProgress(DeltaSeconds, Rate, DecayHalfLifeSeconds);
+
+	if (DecayProgressInHalfLives < 1.0f / GetDecayStepsPerHalfLife())
+	{
+		return;
+	}
+
+	if (Buffer == nullptr || !Buffer->IsAllocated())
+	{
+		DecayProgressInHalfLives = 0.0f;
+		return;
+	}
+
+	Buffer->ApplyDecay(this, RacetrackSurfaceMapping::DecayRetentionForProgress(DecayProgressInHalfLives));
+
+	DecayProgressInHalfLives = 0.0f;
+	++DecayPassCount;
 }
 
 void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
@@ -277,6 +365,8 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 	StrokesResolvedThisFrame.Reset();
 	ContactsDiscardedOutsideRibbon = 0;
 	ContactsDiscardedWithoutCentreline = 0;
+	DecayProgressInHalfLives = 0.0f;
+	DecayPassCount = 0;
 
 	if (Buffer != nullptr)
 	{

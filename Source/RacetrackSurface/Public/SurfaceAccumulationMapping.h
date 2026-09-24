@@ -18,6 +18,26 @@ namespace RacetrackSurfaceMapping
 		return FMath::Clamp(SlipAmount, 0.0f, 1.0f) * ExposurePerUnitSlip * FMath::Max(DepositionScale, 0.0f);
 	}
 
+	static constexpr float FallbackDecayHalfLifeSeconds = 900.0f;
+
+	static constexpr float DecayStepsPerHalfLife = 256.0f;
+
+	static constexpr float HalfFloatGuaranteedChangeThreshold = 4.8828125e-4f;
+
+	inline float ElapsedToDecayProgress(float ElapsedSeconds, float RateMultiplier, float HalfLifeSeconds)
+	{
+		return FMath::Max(RateMultiplier, 0.0f)
+			* FMath::Max(ElapsedSeconds, 0.0f)
+			/ FMath::Max(HalfLifeSeconds, UE_SMALL_NUMBER);
+	}
+
+	inline float DecayRetentionForProgress(float ProgressInHalfLives)
+	{
+		return ProgressInHalfLives <= 0.0f
+			? 1.0f
+			: FMath::Clamp(FMath::Exp2(-ProgressInHalfLives), 0.0f, 1.0f);
+	}
+
 	static constexpr const TCHAR* ParameterCollectionAssetPath =
 		TEXT("/RacetrackSurface/Materials/MPC_RacetrackSurface.MPC_RacetrackSurface");
 
@@ -28,4 +48,9 @@ namespace RacetrackSurfaceMapping
 	static constexpr const TCHAR* AccumulationTargetParameterName = TEXT("AccumulationTarget");
 
 	static constexpr const TCHAR* DepositionScaleVariableName = TEXT("r.RacetrackSurface.DepositionScale");
+
+	static constexpr const TCHAR* DecayRateVariableName = TEXT("r.RacetrackSurface.DecayRate");
+
+	static constexpr const TCHAR* DecayStepsPerHalfLifeVariableName =
+		TEXT("r.RacetrackSurface.DecayStepsPerHalfLife");
 }
