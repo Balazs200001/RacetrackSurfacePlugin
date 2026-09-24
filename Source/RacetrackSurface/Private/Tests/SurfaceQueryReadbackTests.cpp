@@ -177,7 +177,7 @@ bool FSurfaceQueryReadbackResolvesTheFrameItSubmitted::RunTest(const FString& Pa
 	TArray<FLinearColor> Slots;
 	uint64 ResolvedFrame = 0;
 
-	constexpr int32 MaximumAttempts = 400;
+	constexpr int32 MaximumAttempts = 64;
 
 	int32 Attempts = 0;
 

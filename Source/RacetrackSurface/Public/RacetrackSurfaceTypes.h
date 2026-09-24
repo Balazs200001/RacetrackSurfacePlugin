@@ -80,7 +80,13 @@ struct FSurfaceStateSample
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
-	float Amount = 0.0f;
+	float RubberBuildup = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
+	float SkidMark = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
+	float Marbles = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
 	ESurfaceSampleStatus Status = ESurfaceSampleStatus::NotYetResolved;
@@ -91,6 +97,38 @@ struct FSurfaceStateSample
 	bool IsUsable() const
 	{
 		return Status == ESurfaceSampleStatus::Valid;
+	}
+
+	float GetChannel(EAccumulationChannel Channel) const
+	{
+		switch (Channel)
+		{
+		case EAccumulationChannel::RubberBuildup:
+			return RubberBuildup;
+		case EAccumulationChannel::SkidMark:
+			return SkidMark;
+		case EAccumulationChannel::Marbles:
+			return Marbles;
+		default:
+			return 0.0f;
+		}
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FSurfaceQueryHandle
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
+	int32 SlotIndex = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Racetrack Surface")
+	int32 Generation = 0;
+
+	bool IsSet() const
+	{
+		return SlotIndex != INDEX_NONE;
 	}
 };
 

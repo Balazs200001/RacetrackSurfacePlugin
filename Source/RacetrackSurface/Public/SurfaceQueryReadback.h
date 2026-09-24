@@ -24,9 +24,21 @@ public:
 
 	void Drain();
 
+	void Invalidate();
+
 	bool CopyResolved(TArray<FLinearColor>& OutSlots, uint64& OutSubmittedOnFrame) const;
 
 	void ReleaseOnRenderThread();
+
+	int32 GetEpoch() const
+	{
+		return Epoch.GetValue();
+	}
+
+	int32 GetResolvesDiscardedFromAnOldEpoch() const
+	{
+		return ResolvesDiscardedFromAnOldEpoch.GetValue();
+	}
 
 	int32 GetRingDepth() const
 	{
@@ -57,6 +69,8 @@ private:
 
 		int32 SlotCount = 0;
 
+		int32 Epoch = 0;
+
 		bool bInFlight = false;
 	};
 
@@ -80,9 +94,13 @@ private:
 
 	bool bHasResolved = false;
 
+	FThreadSafeCounter Epoch;
+
 	FThreadSafeCounter SubmissionsAccepted;
 
 	FThreadSafeCounter SubmissionsDroppedWhileFull;
 
 	FThreadSafeCounter ResolveCount;
+
+	FThreadSafeCounter ResolvesDiscardedFromAnOldEpoch;
 };

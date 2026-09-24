@@ -71,6 +71,20 @@ void FSurfaceQueryReadback::Drain()
 		});
 }
 
+void FSurfaceQueryReadback::Invalidate()
+{
+	Epoch.Increment();
+
+	{
+		FScopeLock Lock(&ResolvedSection);
+
+		ResolvedSlots.Reset();
+		ResolvedFrame = 0;
+		bHasResolved = false;
+	}
+
+}
+
 void FSurfaceQueryReadback::ReleaseOnRenderThread()
 {
 	TSharedRef<FSurfaceQueryReadback, ESPMode::ThreadSafe> Self = AsShared();
@@ -99,6 +113,8 @@ bool FSurfaceQueryReadback::CopyResolved(TArray<FLinearColor>& OutSlots, uint64&
 
 void FSurfaceQueryReadback::DrainOnRenderThread()
 {
+	const int32 CurrentEpoch = Epoch.GetValue();
+
 	int32 Newest = INDEX_NONE;
 
 	for (int32 Index = 0; Index < Ring.Num(); ++Index)
@@ -110,12 +126,18 @@ void FSurfaceQueryReadback::DrainOnRenderThread()
 			continue;
 		}
 
+		Slot.bInFlight = false;
+
+		if (Slot.Epoch != CurrentEpoch)
+		{
+			ResolvesDiscardedFromAnOldEpoch.Increment();
+			continue;
+		}
+
 		if (Newest == INDEX_NONE || Slot.SubmittedOnFrame > Ring[Newest].SubmittedOnFrame)
 		{
 			Newest = Index;
 		}
-
-		Slot.bInFlight = false;
 	}
 
 	if (Newest == INDEX_NONE)
@@ -205,6 +227,7 @@ void FSurfaceQueryReadback::EnqueueOnRenderThread(
 
 	Slot.SubmittedOnFrame = SubmittedOnFrame;
 	Slot.SlotCount = SlotCount;
+	Slot.Epoch = Epoch.GetValue();
 	Slot.bInFlight = true;
 
 	SubmissionsAccepted.Increment();

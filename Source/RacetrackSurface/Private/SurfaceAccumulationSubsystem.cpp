@@ -9,6 +9,8 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "SurfaceAccumulationBuffer.h"
 #include "SurfaceAccumulationMapping.h"
+#include "SurfaceQueryGather.h"
+#include "SurfaceQueryReadback.h"
 #include "SurfaceTrackSpace.h"
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
@@ -103,6 +105,18 @@ namespace
 		TEXT("because that is where the traffic is, not because anything reserves a gap for it."),
 		ECVF_Default);
 
+	TAutoConsoleVariable<float> CVarQueryContactPatchWidth(
+		TEXT("r.RacetrackSurface.QueryContactPatchWidth"),
+		static_cast<float>(RacetrackSurfaceQuery::DefaultContactPatchWidth),
+		TEXT("How wide a patch, in centimetres, a surface query averages over. 20 is a tyre contact ")
+		TEXT("patch and is 6.4 texels at the production density, so the query integrates what a tyre ")
+		TEXT("stands on rather than one texel of noise. Setting this to one texel's width makes the ")
+		TEXT("query compute exactly what the display material computes at SurfaceBlurTexels 1, which ")
+		TEXT("is how the two reads are checked against each other."),
+		ECVF_Default);
+
+	constexpr int32 QuerySubmissionStampCount = 32;
+
 	TAutoConsoleVariable<float> CVarDecayStepsPerHalfLife(
 		TEXT("r.RacetrackSurface.DecayStepsPerHalfLife"),
 		RacetrackSurfaceMapping::DecayStepsPerHalfLife,
@@ -133,6 +147,11 @@ float USurfaceAccumulationSubsystem::GetDecayStepsPerHalfLife()
 	return FMath::Max(CVarDecayStepsPerHalfLife.GetValueOnGameThread(), 1.0f);
 }
 
+float USurfaceAccumulationSubsystem::GetQueryContactPatchWidth()
+{
+	return FMath::Max(CVarQueryContactPatchWidth.GetValueOnGameThread(), 0.0f);
+}
+
 void USurfaceAccumulationSubsystem::SetDecayHalfLifeSeconds(float Seconds)
 {
 	DecayHalfLifeSeconds = FMath::Max(Seconds, UE_SMALL_NUMBER);
@@ -148,6 +167,8 @@ void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collect
 {
 	Super::Initialize(Collection);
 
+	EnsureQueryReadback();
+
 	UE_LOG(LogRacetrackSurface, Log,
 		TEXT("Surface ribbon awaiting a centreline, defaults %.1f cm of track at %.1f cm wide, %.4f cm per texel"),
 		Ribbon.TrackLength,
@@ -160,6 +181,16 @@ void USurfaceAccumulationSubsystem::Deinitialize()
 	PendingContacts.Empty();
 	StrokesResolvedThisFrame.Empty();
 	Centreline.Reset();
+
+	QuerySlots.Empty();
+	ResolvedQuerySlots.Empty();
+	QuerySubmissionStamps.Empty();
+
+	if (QueryReadback.IsValid())
+	{
+		QueryReadback->ReleaseOnRenderThread();
+		QueryReadback.Reset();
+	}
 
 	if (Buffer != nullptr)
 	{
@@ -236,6 +267,7 @@ void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
 
 	ApplyDecayWhenAStepHasElapsed(DeltaTime);
 	FlushPendingContacts(DeltaTime);
+	ResolveSurfaceQueries();
 }
 
 void USurfaceAccumulationSubsystem::ApplyDecayWhenAStepHasElapsed(float DeltaSeconds)
@@ -306,6 +338,8 @@ void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 {
 	Centreline = NewCentreline;
 	Ribbon = NewRibbon;
+
+	InvalidateQueryCache();
 
 	UE_LOG(LogRacetrackSurface, Log,
 		TEXT("Surface ribbon configured: %.1f cm of track at %.1f cm wide, %.4f cm per texel, ")
@@ -431,6 +465,363 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(
 	return RegisterSurfaceContactInTrackSpace(Contact);
 }
 
+void USurfaceAccumulationSubsystem::EnsureQueryReadback()
+{
+	if (QueryReadback.IsValid())
+	{
+		return;
+	}
+
+	QueryReadback = MakeShared<FSurfaceQueryReadback, ESPMode::ThreadSafe>(
+		FSurfaceQueryReadback::GetConfiguredRingDepth());
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Surface query readback ring built with %d slots"),
+		QueryReadback->GetRingDepth());
+}
+
+void USurfaceAccumulationSubsystem::InvalidateQueryCache()
+{
+	ResolvedQuerySlots.Reset();
+	QuerySubmissionStamps.Reset();
+	ResolvedQueryFrame = 0;
+	QueryFrameCounter = 0;
+	ResolvedQueryWorldTimeSeconds = 0.0f;
+	GatherTargetWidthInFlight = 0;
+	bHasResolvedQuery = false;
+
+	for (FSurfaceQuerySlot& Slot : QuerySlots)
+	{
+		Slot.FirstSubmittedFrame = TNumericLimits<uint64>::Max();
+	}
+
+	if (QueryReadback.IsValid())
+	{
+		QueryReadback->Invalidate();
+	}
+}
+
+float USurfaceAccumulationSubsystem::GetWorldTimeSecondsForStaleness() const
+{
+	const UWorld* World = GetWorld();
+
+	return World != nullptr ? World->GetTimeSeconds() : 0.0f;
+}
+
+FSurfaceQueryHandle USurfaceAccumulationSubsystem::AcquireSurfaceQuery()
+{
+	int32 SlotIndex = INDEX_NONE;
+
+	for (int32 Index = 0; Index < QuerySlots.Num(); ++Index)
+	{
+		if (!QuerySlots[Index].bInUse)
+		{
+			SlotIndex = Index;
+			break;
+		}
+	}
+
+	if (SlotIndex == INDEX_NONE)
+	{
+		SlotIndex = QuerySlots.AddDefaulted();
+	}
+
+	FSurfaceQuerySlot& Slot = QuerySlots[SlotIndex];
+
+	++Slot.Generation;
+	Slot.bInUse = true;
+	Slot.bPositioned = false;
+	Slot.bOutsideRibbon = false;
+	Slot.FirstSubmittedFrame = TNumericLimits<uint64>::Max();
+	Slot.Coordinate = FSurfaceTrackCoordinate();
+
+	FSurfaceQueryHandle Handle;
+	Handle.SlotIndex = SlotIndex;
+	Handle.Generation = Slot.Generation;
+
+	return Handle;
+}
+
+void USurfaceAccumulationSubsystem::ReleaseSurfaceQuery(const FSurfaceQueryHandle& Handle)
+{
+	int32 SlotIndex = INDEX_NONE;
+
+	if (!ResolveQuerySlot(Handle, SlotIndex))
+	{
+		return;
+	}
+
+	FSurfaceQuerySlot& Slot = QuerySlots[SlotIndex];
+
+	Slot.bInUse = false;
+	Slot.bPositioned = false;
+	Slot.bOutsideRibbon = false;
+	Slot.FirstSubmittedFrame = TNumericLimits<uint64>::Max();
+}
+
+bool USurfaceAccumulationSubsystem::ResolveQuerySlot(const FSurfaceQueryHandle& Handle, int32& OutSlotIndex) const
+{
+	if (!QuerySlots.IsValidIndex(Handle.SlotIndex))
+	{
+		return false;
+	}
+
+	const FSurfaceQuerySlot& Slot = QuerySlots[Handle.SlotIndex];
+
+	if (!Slot.bInUse || Slot.Generation != Handle.Generation)
+	{
+		return false;
+	}
+
+	OutSlotIndex = Handle.SlotIndex;
+
+	return true;
+}
+
+int32 USurfaceAccumulationSubsystem::GetActiveSurfaceQueryCount() const
+{
+	int32 Active = 0;
+
+	for (const FSurfaceQuerySlot& Slot : QuerySlots)
+	{
+		Active += Slot.bInUse ? 1 : 0;
+	}
+
+	return Active;
+}
+
+uint64 USurfaceAccumulationSubsystem::GetQueryLatencyInFrames() const
+{
+	return bHasResolvedQuery && QueryFrameCounter >= ResolvedQueryFrame
+		? QueryFrameCounter - ResolvedQueryFrame
+		: 0;
+}
+
+FSurfaceStateSample USurfaceAccumulationSubsystem::QuerySurfaceStateInTrackSpace(
+	const FSurfaceQueryHandle& Handle,
+	const FSurfaceTrackCoordinate& Coordinate)
+{
+	FSurfaceStateSample Unusable;
+
+	int32 SlotIndex = INDEX_NONE;
+
+	if (!ResolveQuerySlot(Handle, SlotIndex))
+	{
+		return Unusable;
+	}
+
+	EnsureQueryReadback();
+
+	FSurfaceQuerySlot& Slot = QuerySlots[SlotIndex];
+
+	Slot.Coordinate = Coordinate;
+	Slot.bPositioned = true;
+	Slot.bOutsideRibbon = !Ribbon.ContainsLateralOffset(Coordinate.LateralOffsetAlpha);
+
+	return BuildSurfaceStateSample(SlotIndex);
+}
+
+FSurfaceStateSample USurfaceAccumulationSubsystem::QuerySurfaceState(
+	const FSurfaceQueryHandle& Handle,
+	const FVector& WorldPosition)
+{
+	const USplineComponent* Spline = Centreline.Get();
+
+	if (Spline == nullptr)
+	{
+		FSurfaceStateSample WithoutACentreline;
+		WithoutACentreline.Status = ESurfaceSampleStatus::OutsideRegion;
+		return WithoutACentreline;
+	}
+
+	FSurfaceTrackCoordinate Coordinate;
+
+	const ETrackSpaceStatus Status = RacetrackSurfaceTrackSpace::WorldToTrack(
+		*Spline,
+		Ribbon.TrackWidth,
+		WorldPosition,
+		Coordinate);
+
+	if (Status != ETrackSpaceStatus::Valid)
+	{
+		int32 SlotIndex = INDEX_NONE;
+
+		if (ResolveQuerySlot(Handle, SlotIndex))
+		{
+			QuerySlots[SlotIndex].bOutsideRibbon = true;
+		}
+
+		FSurfaceStateSample OffTheRibbon;
+		OffTheRibbon.Status = ESurfaceSampleStatus::OutsideRegion;
+		return OffTheRibbon;
+	}
+
+	return QuerySurfaceStateInTrackSpace(Handle, Coordinate);
+}
+
+FSurfaceStateSample USurfaceAccumulationSubsystem::BuildSurfaceStateSample(int32 SlotIndex) const
+{
+	FSurfaceStateSample Sample;
+
+	const FSurfaceQuerySlot& Slot = QuerySlots[SlotIndex];
+
+	if (Slot.bOutsideRibbon)
+	{
+		Sample.Status = ESurfaceSampleStatus::OutsideRegion;
+		return Sample;
+	}
+
+	const bool bResolvedSinceThisSlotWasAcquired =
+		bHasResolvedQuery
+		&& ResolvedQuerySlots.IsValidIndex(SlotIndex)
+		&& Slot.FirstSubmittedFrame != TNumericLimits<uint64>::Max()
+		&& ResolvedQueryFrame >= Slot.FirstSubmittedFrame;
+
+	if (!bResolvedSinceThisSlotWasAcquired)
+	{
+		Sample.Status = ESurfaceSampleStatus::NotYetResolved;
+		return Sample;
+	}
+
+	const FLinearColor Exposure = ResolvedQuerySlots[SlotIndex] / RacetrackSurfaceQuery::TotalTapWeight;
+
+	Sample.RubberBuildup = RacetrackSurfaceMapping::ExposureToCoverage(Exposure.R);
+	Sample.SkidMark = RacetrackSurfaceMapping::ExposureToCoverage(Exposure.G);
+	Sample.Marbles = RacetrackSurfaceMapping::ExposureToCoverage(Exposure.B);
+	Sample.Status = ESurfaceSampleStatus::Valid;
+	Sample.SecondsSinceResolved =
+		FMath::Max(GetWorldTimeSecondsForStaleness() - ResolvedQueryWorldTimeSeconds, 0.0f);
+
+	return Sample;
+}
+
+void USurfaceAccumulationSubsystem::RecordQuerySubmission(uint64 Frame)
+{
+	if (QuerySubmissionStamps.Num() != QuerySubmissionStampCount)
+	{
+		QuerySubmissionStamps.SetNum(QuerySubmissionStampCount);
+	}
+
+	FQuerySubmissionStamp& Stamp =
+		QuerySubmissionStamps[static_cast<int32>(Frame % QuerySubmissionStampCount)];
+
+	Stamp.Frame = Frame;
+	Stamp.WorldTimeSeconds = GetWorldTimeSecondsForStaleness();
+}
+
+bool USurfaceAccumulationSubsystem::FindQuerySubmissionTime(uint64 Frame, float& OutWorldTimeSeconds) const
+{
+	const int32 Index = static_cast<int32>(Frame % QuerySubmissionStampCount);
+
+	if (!QuerySubmissionStamps.IsValidIndex(Index) || QuerySubmissionStamps[Index].Frame != Frame)
+	{
+		return false;
+	}
+
+	OutWorldTimeSeconds = QuerySubmissionStamps[Index].WorldTimeSeconds;
+
+	return true;
+}
+
+void USurfaceAccumulationSubsystem::ResolveSurfaceQueries()
+{
+	if (GetActiveSurfaceQueryCount() == 0)
+	{
+		return;
+	}
+
+	EnsureQueryReadback();
+
+	if (!QueryReadback.IsValid())
+	{
+		UE_LOG(LogRacetrackSurface, Error,
+			TEXT("No surface query readback ring could be built, so every query in this world will "
+				"answer NotYetResolved forever"));
+
+		return;
+	}
+
+	TArray<FLinearColor> Resolved;
+	uint64 ResolvedFrame = 0;
+
+	if (QueryReadback->CopyResolved(Resolved, ResolvedFrame) && ResolvedFrame >= ResolvedQueryFrame)
+	{
+		ResolvedQuerySlots = MoveTemp(Resolved);
+		ResolvedQueryFrame = ResolvedFrame;
+		bHasResolvedQuery = true;
+
+		if (!FindQuerySubmissionTime(ResolvedFrame, ResolvedQueryWorldTimeSeconds))
+		{
+			ResolvedQueryWorldTimeSeconds = GetWorldTimeSecondsForStaleness();
+		}
+	}
+
+	if (Buffer == nullptr || !Buffer->IsAllocated())
+	{
+		QueryReadback->Drain();
+		return;
+	}
+
+	TArray<FSurfaceQueryTap> Taps;
+	int32 SlotCount = 0;
+
+	const uint64 SubmittingFrame = QueryFrameCounter + 1;
+	const double ContactPatchWidth = GetQueryContactPatchWidth();
+
+	for (int32 Index = 0; Index < QuerySlots.Num(); ++Index)
+	{
+		FSurfaceQuerySlot& Slot = QuerySlots[Index];
+
+		if (!Slot.bInUse || !Slot.bPositioned || Slot.bOutsideRibbon)
+		{
+			continue;
+		}
+
+		RacetrackSurfaceQuery::BuildTaps(Ribbon, Index, Slot.Coordinate, ContactPatchWidth, Taps);
+
+		if (Slot.FirstSubmittedFrame == TNumericLimits<uint64>::Max())
+		{
+			Slot.FirstSubmittedFrame = SubmittingFrame;
+		}
+
+		SlotCount = Index + 1;
+	}
+
+	if (Taps.Num() == 0)
+	{
+		QueryReadback->Drain();
+		return;
+	}
+
+	const UTextureRenderTarget2D* GatherTarget = Buffer->EnsureGatherTarget(this, SlotCount);
+
+	if (GatherTarget == nullptr)
+	{
+		return;
+	}
+
+	if (GatherTarget->SizeX != GatherTargetWidthInFlight)
+	{
+		GatherTargetWidthInFlight = GatherTarget->SizeX;
+
+		QueryReadback->Invalidate();
+
+		UE_LOG(LogRacetrackSurface, Log,
+			TEXT("Query gather target resized to %d slots, so the readback staging textures are rebuilt. ")
+			TEXT("FRHIGPUTextureReadback reuses its staging texture and assumes the source never changes ")
+			TEXT("size, so a resize has to drop the ring rather than copy a wider source into it."),
+			GatherTarget->SizeX);
+	}
+
+	QueryFrameCounter = SubmittingFrame;
+
+	Buffer->GatherTaps(this, Taps, SlotCount);
+
+	RecordQuerySubmission(QueryFrameCounter);
+
+	QueryReadback->Submit(Buffer->GetGatherTarget(), SlotCount, QueryFrameCounter);
+}
+
 void USurfaceAccumulationSubsystem::ResetSurface()
 {
 	PendingContacts.Reset();
@@ -439,6 +830,8 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 	ContactsDiscardedWithoutCentreline = 0;
 	DecayProgressInHalfLives = 0.0f;
 	DecayPassCount = 0;
+
+	InvalidateQueryCache();
 
 	if (Buffer != nullptr)
 	{
