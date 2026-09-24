@@ -12,6 +12,8 @@ enum class EAccumulationChannel : uint8
 	Marbles
 };
 
+static constexpr int32 AccumulationChannelCount = static_cast<int32>(EAccumulationChannel::Marbles) + 1;
+
 UENUM(BlueprintType)
 enum class ESurfacePaintMode : uint8
 {
