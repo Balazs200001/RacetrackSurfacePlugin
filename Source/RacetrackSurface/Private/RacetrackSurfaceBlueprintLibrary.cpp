@@ -20,6 +20,60 @@ USurfaceAccumulationSubsystem* URacetrackSurfaceBlueprintLibrary::FindSubsystem(
 	return World->GetSubsystem<USurfaceAccumulationSubsystem>();
 }
 
+FSurfaceQueryHandle URacetrackSurfaceBlueprintLibrary::AcquireSurfaceQuery(const UObject* WorldContextObject)
+{
+	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
+	{
+		return Subsystem->AcquireSurfaceQuery();
+	}
+
+	return FSurfaceQueryHandle();
+}
+
+void URacetrackSurfaceBlueprintLibrary::ReleaseSurfaceQuery(
+	const UObject* WorldContextObject,
+	FSurfaceQueryHandle Handle)
+{
+	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
+	{
+		Subsystem->ReleaseSurfaceQuery(Handle);
+	}
+}
+
+FSurfaceStateSample URacetrackSurfaceBlueprintLibrary::QuerySurfaceState(
+	const UObject* WorldContextObject,
+	FSurfaceQueryHandle Handle,
+	FVector WorldPosition)
+{
+	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
+	{
+		return Subsystem->QuerySurfaceState(Handle, WorldPosition);
+	}
+
+	return FSurfaceStateSample();
+}
+
+float URacetrackSurfaceBlueprintLibrary::QuerySurfaceCoverage(
+	const UObject* WorldContextObject,
+	FSurfaceQueryHandle Handle,
+	FVector WorldPosition,
+	EAccumulationChannel Channel)
+{
+	return QuerySurfaceState(WorldContextObject, Handle, WorldPosition).GetChannel(Channel);
+}
+
+float URacetrackSurfaceBlueprintLibrary::GetSurfaceStateChannel(
+	const FSurfaceStateSample& Sample,
+	EAccumulationChannel Channel)
+{
+	return Sample.GetChannel(Channel);
+}
+
+bool URacetrackSurfaceBlueprintLibrary::IsSurfaceStateUsable(const FSurfaceStateSample& Sample)
+{
+	return Sample.IsUsable();
+}
+
 void URacetrackSurfaceBlueprintLibrary::RegisterSurfaceContact(
 	const UObject* WorldContextObject,
 	FVector WorldPosition,

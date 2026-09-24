@@ -50,6 +50,35 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
+	static FSurfaceQueryHandle AcquireSurfaceQuery(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
+	static void ReleaseSurfaceQuery(const UObject* WorldContextObject, FSurfaceQueryHandle Handle);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
+	static FSurfaceStateSample QuerySurfaceState(
+		const UObject* WorldContextObject,
+		FSurfaceQueryHandle Handle,
+		FVector WorldPosition);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
+	static float QuerySurfaceCoverage(
+		const UObject* WorldContextObject,
+		FSurfaceQueryHandle Handle,
+		FVector WorldPosition,
+		EAccumulationChannel Channel = EAccumulationChannel::RubberBuildup);
+
+	UFUNCTION(BlueprintPure, Category = "Racetrack Surface")
+	static float GetSurfaceStateChannel(const FSurfaceStateSample& Sample, EAccumulationChannel Channel);
+
+	UFUNCTION(BlueprintPure, Category = "Racetrack Surface")
+	static bool IsSurfaceStateUsable(const FSurfaceStateSample& Sample);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
 	static void ResetSurface(const UObject* WorldContextObject);
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
