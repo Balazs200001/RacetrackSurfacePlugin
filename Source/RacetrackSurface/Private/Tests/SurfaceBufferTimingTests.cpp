@@ -6,6 +6,7 @@
 #include "RenderingThread.h"
 #include "RHIGlobals.h"
 #include "SurfaceAccumulationBuffer.h"
+#include "SurfaceAccumulationMapping.h"
 #include "SurfaceAccumulationSubsystem.h"
 #include "Tests/RacetrackSurfaceTestHelpers.h"
 #include "Tests/SurfaceGpuTiming.h"
@@ -185,6 +186,103 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 			FourMedian,
 			GateBudgetMilliseconds));
 	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceDecayAtTheProductionAtlas,
+	"RacetrackSurface.Performance.DecayAtTheProductionAtlas",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddWarning(TEXT("Skipped: build cannot render, so no GPU timing is possible."));
+		return true;
+	}
+
+	if (!GSupportsTimestampRenderQueries)
+	{
+		AddWarning(TEXT("Skipped: RHI reports no timestamp render query support."));
+		return true;
+	}
+
+	UWorld* World = FindRenderableWorld();
+
+	if (World == nullptr)
+	{
+		AddError(TEXT("No editor, game or PIE world available to render through."));
+		return false;
+	}
+
+	const FSurfaceTrackRibbon Ribbon;
+
+	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
+
+	if (!Buffer->Allocate(World, Ribbon))
+	{
+		AddError(TEXT("Failed to allocate the accumulation buffer at the production atlas."));
+		return false;
+	}
+
+	Buffer->ApplyDecay(World, 0.997296f);
+	FlushRenderingCommands();
+
+	double DecayMedian = 0.0;
+	double DecayMinimum = 0.0;
+
+	if (!SampleGpuWork([&]() { Buffer->ApplyDecay(World, 0.997296f); }, DecayMedian, DecayMinimum))
+	{
+		AddError(TEXT("Timestamp query readback failed despite reported support."));
+		return false;
+	}
+
+	const double StepsPerHalfLife = RacetrackSurfaceMapping::DecayStepsPerHalfLife;
+	const double HalfLife = RacetrackSurfaceMapping::FallbackDecayHalfLifeSeconds;
+	const double PassesPerSecondAtOne = StepsPerHalfLife / HalfLife;
+
+	AddInfo(FString::Printf(
+		TEXT("Production atlas: %.0f cm of lap at %.0f cm wide, %.4f cm per texel, %d x %d texels in %d "
+			"rows of %d, allocating %d x %d for %lld bytes"),
+		Ribbon.TrackLength,
+		Ribbon.TrackWidth,
+		Ribbon.CentimetresPerTexel,
+		Ribbon.AlongTrackTexels(),
+		Ribbon.AcrossTrackTexels(),
+		Ribbon.RowCount(),
+		Ribbon.TexelsPerRow(),
+		Buffer->GetAllocatedWidth(),
+		Buffer->GetAllocatedHeight(),
+		Buffer->GetAllocatedBytes()));
+
+	AddInfo(FString::Printf(
+		TEXT("Full buffer decay: median %.4f ms, min %.4f ms over %d samples"),
+		DecayMedian,
+		DecayMinimum,
+		TimingSampleCount));
+
+	AddInfo(FString::Printf(
+		TEXT("At %.0f steps per half-life and a %.0f s half-life that is %.4f passes a second at 1x, so "
+			"%.4f ms a second and %.4f ms a frame at %.0f Hz. At 20x it is %.4f ms a second"),
+		StepsPerHalfLife,
+		HalfLife,
+		PassesPerSecondAtOne,
+		PassesPerSecondAtOne * DecayMedian,
+		PassesPerSecondAtOne * DecayMedian / TargetFrameHertz,
+		TargetFrameHertz,
+		20.0 * PassesPerSecondAtOne * DecayMedian));
+
+	TestEqual(
+		TEXT("The default ribbon is the demo's own configuration, so this measures the buffer the demo runs"),
+		Buffer->GetAllocatedBytes(),
+		static_cast<int64>(117964800));
+
+	TestTrue(
+		TEXT("The decay pass resolved a timestamp, so the figure above is a measurement rather than a "
+			"failed readback reported as zero"),
+		DecayMedian > 0.0);
 
 	return true;
 }

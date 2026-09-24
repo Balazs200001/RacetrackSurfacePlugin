@@ -88,4 +88,137 @@ bool FSurfaceExposureToCoverageMatchesB6Derivation::RunTest(const FString& Param
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceDecayRetentionIsIndependentOfFrameRate,
+	"RacetrackSurface.Mapping.DecayRetentionIsIndependentOfFrameRate",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceDecayRetentionIsIndependentOfFrameRate::RunTest(const FString& Parameters)
+{
+	constexpr float SpanSeconds = 10.0f;
+	constexpr float Rate = 1.0f;
+	constexpr float HalfLife = RacetrackSurfaceMapping::FallbackDecayHalfLifeSeconds;
+
+	const float OneStepProgress =
+		RacetrackSurfaceMapping::ElapsedToDecayProgress(SpanSeconds, Rate, HalfLife);
+	const float OneStepRetention = RacetrackSurfaceMapping::DecayRetentionForProgress(OneStepProgress);
+
+	float AccumulatedProgress = 0.0f;
+	float CompoundedRetention = 1.0f;
+
+	constexpr int32 FrameCount = 600;
+
+	for (int32 Frame = 0; Frame < FrameCount; ++Frame)
+	{
+		const float FrameProgress =
+			RacetrackSurfaceMapping::ElapsedToDecayProgress(SpanSeconds / FrameCount, Rate, HalfLife);
+
+		AccumulatedProgress += FrameProgress;
+		CompoundedRetention *= RacetrackSurfaceMapping::DecayRetentionForProgress(FrameProgress);
+	}
+
+	const float Difference = FMath::Abs(OneStepRetention - CompoundedRetention);
+	const float Threshold = RacetrackSurfaceMapping::HalfFloatGuaranteedChangeThreshold;
+
+	AddInfo(FString::Printf(
+		TEXT("Over %.0f s at %.2fx the retention is %.9f banked in one step and %.9f compounded over %d "
+			"frames, a difference of %.3e, which is %.0f times finer than the %.3e a half float can hold"),
+		SpanSeconds,
+		Rate,
+		OneStepRetention,
+		CompoundedRetention,
+		FrameCount,
+		Difference,
+		Threshold / Difference,
+		Threshold));
+
+	TestTrue(
+		TEXT("Progress banked frame by frame sums to the progress of one long step"),
+		FMath::IsNearlyEqual(AccumulatedProgress, OneStepProgress, 1.e-6f));
+
+	TestTrue(
+		TEXT("Retention over a span does not depend on how many frames the span was cut into, to well "
+			"inside what the half-float buffer it is applied to can represent"),
+		Difference < Threshold);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceDecayRateOfZeroRetainsEverything,
+	"RacetrackSurface.Mapping.DecayRateOfZeroRetainsEverything",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceDecayRateOfZeroRetainsEverything::RunTest(const FString& Parameters)
+{
+	const float Spans[] = { 0.0f, 1.0f, 60.0f, 3600.0f, 1.e6f };
+
+	constexpr float HalfLife = RacetrackSurfaceMapping::FallbackDecayHalfLifeSeconds;
+
+	for (const float Span : Spans)
+	{
+		const float Progress = RacetrackSurfaceMapping::ElapsedToDecayProgress(Span, 0.0f, HalfLife);
+
+		TestEqual(
+			*FString::Printf(TEXT("A rate of zero banks no progress over %.0f s"), Span),
+			Progress,
+			0.0f);
+
+		TestEqual(
+			*FString::Printf(TEXT("A rate of zero retains everything over %.0f s"), Span),
+			RacetrackSurfaceMapping::DecayRetentionForProgress(Progress),
+			1.0f);
+	}
+
+	TestEqual(
+		TEXT("One whole half-life of progress retains exactly half"),
+		RacetrackSurfaceMapping::DecayRetentionForProgress(1.0f),
+		0.5f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceDecayStepSurvivesHalfFloatRounding,
+	"RacetrackSurface.Mapping.DecayStepSurvivesHalfFloatRounding",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceDecayStepSurvivesHalfFloatRounding::RunTest(const FString& Parameters)
+{
+	const float StepProgress = 1.0f / RacetrackSurfaceMapping::DecayStepsPerHalfLife;
+	const float StepRetention = RacetrackSurfaceMapping::DecayRetentionForProgress(StepProgress);
+	const float StepChange = 1.0f - StepRetention;
+	const float Threshold = RacetrackSurfaceMapping::HalfFloatGuaranteedChangeThreshold;
+
+	const float PerFrameProgress = RacetrackSurfaceMapping::ElapsedToDecayProgress(
+		1.0f / 60.0f,
+		1.0f,
+		RacetrackSurfaceMapping::FallbackDecayHalfLifeSeconds);
+	const float PerFrameChange = 1.0f - RacetrackSurfaceMapping::DecayRetentionForProgress(PerFrameProgress);
+
+	AddInfo(FString::Printf(
+		TEXT("One step of %.0f per half-life retains %.6f, a change of %.3e against the %.3e that every "
+			"half float is guaranteed to notice, so %.1f times the threshold. Decaying every frame instead "
+			"would move a texel by %.3e, which is %.0f times too small to change a single bit"),
+		RacetrackSurfaceMapping::DecayStepsPerHalfLife,
+		StepRetention,
+		StepChange,
+		Threshold,
+		StepChange / Threshold,
+		PerFrameChange,
+		Threshold / PerFrameChange));
+
+	TestTrue(
+		TEXT("One decay step moves a half float by more than the largest half-ulp in the format, so it "
+			"cannot round back to the value it started at"),
+		StepChange > Threshold);
+
+	TestTrue(
+		TEXT("Decaying every frame at 60 Hz would be below that threshold, which is why the pass runs on "
+			"banked progress rather than on every tick"),
+		PerFrameChange < Threshold);
+
+	return true;
+}
+
 #endif
