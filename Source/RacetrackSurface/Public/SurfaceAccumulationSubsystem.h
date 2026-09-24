@@ -35,6 +35,8 @@ public:
 
 	static float GetDecayStepsPerHalfLife();
 
+	static float GetMarbleSweepRetention();
+
 	void SetDecayHalfLifeSeconds(float Seconds);
 
 	float GetDecayHalfLifeSeconds() const

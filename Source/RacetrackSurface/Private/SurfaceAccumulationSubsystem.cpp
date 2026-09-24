@@ -94,6 +94,15 @@ namespace
 		FConsoleVariableDelegate::CreateStatic(&AnnounceDecayRate),
 		ECVF_Default);
 
+	TAutoConsoleVariable<float> CVarMarbleSweepRetention(
+		TEXT("r.RacetrackSurface.MarbleSweepRetention"),
+		RacetrackSurfaceMapping::MarbleSweepRetention,
+		TEXT("The fraction of the marbles under a tyre that survive one pass over them. 1 sweeps nothing ")
+		TEXT("and leaves marbles lying on the racing line where cars actually drive, which is wrong; 0 ")
+		TEXT("scrubs a texel clean the first time any wheel crosses it. The racing line ends up clear ")
+		TEXT("because that is where the traffic is, not because anything reserves a gap for it."),
+		ECVF_Default);
+
 	TAutoConsoleVariable<float> CVarDecayStepsPerHalfLife(
 		TEXT("r.RacetrackSurface.DecayStepsPerHalfLife"),
 		RacetrackSurfaceMapping::DecayStepsPerHalfLife,
@@ -112,6 +121,11 @@ float USurfaceAccumulationSubsystem::GetDepositionScale()
 float USurfaceAccumulationSubsystem::GetDecayRate()
 {
 	return CVarDecayRate.GetValueOnGameThread();
+}
+
+float USurfaceAccumulationSubsystem::GetMarbleSweepRetention()
+{
+	return FMath::Clamp(CVarMarbleSweepRetention.GetValueOnGameThread(), 0.0f, 1.0f);
 }
 
 float USurfaceAccumulationSubsystem::GetDecayStepsPerHalfLife()
@@ -556,6 +570,12 @@ void USurfaceAccumulationSubsystem::FlushPendingContacts(float DeltaSeconds)
 
 	if (StrokesResolvedThisFrame.Num() > 0 && EnsureBuffer())
 	{
+		Buffer->SweepStrokes(
+			this,
+			StrokesResolvedThisFrame,
+			EAccumulationChannel::Marbles,
+			GetMarbleSweepRetention());
+
 		Buffer->PaintStrokes(this, StrokesResolvedThisFrame);
 	}
 }

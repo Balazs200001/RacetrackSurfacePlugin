@@ -20,6 +20,8 @@ namespace RacetrackSurfaceMapping
 
 	static constexpr double MaximumLateralExtrapolationSeconds = 1.0 / 30.0;
 
+	static constexpr float MarbleSweepRetention = 0.5f;
+
 	static constexpr float FallbackDecayHalfLifeSeconds = 900.0f;
 
 	static constexpr float DecayStepsPerHalfLife = 256.0f;
@@ -52,6 +54,9 @@ namespace RacetrackSurfaceMapping
 	static constexpr const TCHAR* DepositionScaleVariableName = TEXT("r.RacetrackSurface.DepositionScale");
 
 	static constexpr const TCHAR* DecayRateVariableName = TEXT("r.RacetrackSurface.DecayRate");
+
+	static constexpr const TCHAR* MarbleSweepRetentionVariableName =
+		TEXT("r.RacetrackSurface.MarbleSweepRetention");
 
 	static constexpr const TCHAR* DecayStepsPerHalfLifeVariableName =
 		TEXT("r.RacetrackSurface.DecayStepsPerHalfLife");

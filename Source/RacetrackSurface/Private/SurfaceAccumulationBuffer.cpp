@@ -329,6 +329,86 @@ void USurfaceAccumulationBuffer::EnsureSolid()
 	}
 }
 
+void USurfaceAccumulationBuffer::SweepStrokes(
+	UObject* WorldContext,
+	const TArray<FSurfaceBrushStroke>& Strokes,
+	EAccumulationChannel SweptChannel,
+	float Retention)
+{
+	if (Target == nullptr || WorldContext == nullptr || Strokes.Num() == 0 || Retention >= 1.0f)
+	{
+		return;
+	}
+
+	EnsureSolid();
+
+	if (Solid == nullptr)
+	{
+		return;
+	}
+
+	const FLinearColor Surviving =
+		FLinearColor::White - ChannelMask(SweptChannel) * (1.0f - FMath::Clamp(Retention, 0.0f, 1.0f));
+
+	UCanvas* Canvas = nullptr;
+	FVector2D CanvasSize = FVector2D::ZeroVector;
+	FDrawToRenderTargetContext Context;
+
+	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(WorldContext, Target, Canvas, CanvasSize, Context);
+
+	if (Canvas != nullptr)
+	{
+		const FScopedCanvasFlushDeferral FlushDeferral(Canvas);
+
+		const bool bClipToRows = AllocatedRowCount > 1 && Canvas->Canvas != nullptr;
+		int32 ClippedRow = INDEX_NONE;
+
+		for (const FSurfaceBrushStroke& Stroke : Strokes)
+		{
+			if (Stroke.Channel == SweptChannel)
+			{
+				continue;
+			}
+
+			if (bClipToRows && Stroke.RowIndex != ClippedRow)
+			{
+				if (ClippedRow != INDEX_NONE)
+				{
+					Canvas->Canvas->Flush_GameThread(true);
+				}
+
+				ClippedRow = Stroke.RowIndex;
+				Canvas->Canvas->SetRenderTargetScissorRect(GetRowBounds(ClippedRow));
+			}
+
+			const FVector2D Start = Stroke.RegionStart * CanvasSize;
+			const FVector2D End = Stroke.RegionEnd * CanvasSize;
+			const FVector2D Delta = End - Start;
+
+			const float Width = FMath::Max(Stroke.WidthInTexels, 1.0f);
+			const FVector2D QuadSize(static_cast<float>(Delta.Size()) + Width, Width);
+			const FVector2D Centre = (Start + End) * 0.5;
+
+			const float RotationDegrees = Delta.IsNearlyZero()
+				? 0.0f
+				: FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X));
+
+			Canvas->K2_DrawTexture(
+				Solid,
+				Centre - QuadSize * 0.5,
+				QuadSize,
+				FVector2D::ZeroVector,
+				FVector2D::UnitVector,
+				Surviving,
+				BLEND_Modulate,
+				RotationDegrees,
+				FVector2D(0.5f, 0.5f));
+		}
+	}
+
+	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
+}
+
 void USurfaceAccumulationBuffer::ApplyDecay(UObject* WorldContext, float Retention)
 {
 	if (Target == nullptr || WorldContext == nullptr)

@@ -31,6 +31,12 @@ public:
 		const TArray<FSurfaceBrushStroke>& Strokes,
 		ESurfacePaintMode PaintMode = ESurfacePaintMode::Additive);
 
+	void SweepStrokes(
+		UObject* WorldContext,
+		const TArray<FSurfaceBrushStroke>& Strokes,
+		EAccumulationChannel SweptChannel,
+		float Retention);
+
 	void ApplyDecay(UObject* WorldContext, float Retention);
 
 	void Clear(UObject* WorldContext);
