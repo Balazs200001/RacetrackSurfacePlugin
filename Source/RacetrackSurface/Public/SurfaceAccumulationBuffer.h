@@ -8,6 +8,7 @@
 #include "SurfaceAccumulationBuffer.generated.h"
 
 class UTexture2D;
+struct FSurfaceQueryTap;
 
 UCLASS()
 class USurfaceAccumulationBuffer : public UObject
@@ -41,9 +42,18 @@ public:
 
 	void Clear(UObject* WorldContext);
 
+	UTextureRenderTarget2D* EnsureGatherTarget(UObject* WorldContext, int32 SlotCount);
+
+	void GatherTaps(UObject* WorldContext, const TArray<FSurfaceQueryTap>& Taps, int32 SlotCount);
+
 	UTextureRenderTarget2D* GetTarget() const
 	{
 		return Target;
+	}
+
+	UTextureRenderTarget2D* GetGatherTarget() const
+	{
+		return GatherTarget;
 	}
 
 	int32 GetAllocatedWidth() const
@@ -79,6 +89,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> Target;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> GatherTarget;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> Brush;

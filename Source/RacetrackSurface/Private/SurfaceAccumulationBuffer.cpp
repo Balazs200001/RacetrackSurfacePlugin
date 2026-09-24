@@ -12,6 +12,7 @@
 #include "RHIResources.h"
 #include "RenderingThread.h"
 #include "SurfaceAccumulationSubsystem.h"
+#include "SurfaceQueryGather.h"
 
 namespace
 {
@@ -269,6 +270,12 @@ void USurfaceAccumulationBuffer::Release()
 		Target = nullptr;
 	}
 
+	if (GatherTarget != nullptr)
+	{
+		UKismetRenderingLibrary::ReleaseRenderTarget2D(GatherTarget);
+		GatherTarget = nullptr;
+	}
+
 	AllocatedWidth = 0;
 	AllocatedHeight = 0;
 	AllocatedRowCount = 1;
@@ -456,6 +463,107 @@ void USurfaceAccumulationBuffer::Clear(UObject* WorldContext)
 	}
 
 	UKismetRenderingLibrary::ClearRenderTarget2D(WorldContext, Target, FLinearColor::Black);
+}
+
+UTextureRenderTarget2D* USurfaceAccumulationBuffer::EnsureGatherTarget(UObject* WorldContext, int32 SlotCount)
+{
+	if (WorldContext == nullptr)
+	{
+		return nullptr;
+	}
+
+	const int32 Width = FMath::Max(SlotCount, 1);
+
+	if (GatherTarget != nullptr && GatherTarget->SizeX >= Width)
+	{
+		return GatherTarget;
+	}
+
+	if (GatherTarget != nullptr)
+	{
+		UKismetRenderingLibrary::ReleaseRenderTarget2D(GatherTarget);
+		GatherTarget = nullptr;
+	}
+
+	GatherTarget = UKismetRenderingLibrary::CreateRenderTarget2D(
+		WorldContext,
+		Width,
+		1,
+		RTF_RGBA16f,
+		FLinearColor::Black,
+		false,
+		false);
+
+	if (GatherTarget == nullptr)
+	{
+		UE_LOG(LogRacetrackSurface, Error,
+			TEXT("Could not allocate a %d x 1 query gather target, so no surface query can be answered"),
+			Width);
+
+		return nullptr;
+	}
+
+	GatherTarget->TargetGamma = 0.0f;
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Query gather target allocated at %d x 1, %d slots, display gamma %.1f"),
+		Width,
+		Width,
+		GatherTarget->GetDisplayGamma());
+
+	return GatherTarget;
+}
+
+void USurfaceAccumulationBuffer::GatherTaps(
+	UObject* WorldContext,
+	const TArray<FSurfaceQueryTap>& Taps,
+	int32 SlotCount)
+{
+	if (Target == nullptr || WorldContext == nullptr || Taps.Num() == 0)
+	{
+		return;
+	}
+
+	UTextureRenderTarget2D* Destination = EnsureGatherTarget(WorldContext, SlotCount);
+
+	if (Destination == nullptr || Destination == Target)
+	{
+		return;
+	}
+
+	UKismetRenderingLibrary::ClearRenderTarget2D(WorldContext, Destination, FLinearColor::Black);
+
+	UCanvas* Canvas = nullptr;
+	FVector2D CanvasSize = FVector2D::ZeroVector;
+	FDrawToRenderTargetContext Context;
+
+	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(WorldContext, Destination, Canvas, CanvasSize, Context);
+
+	if (Canvas != nullptr)
+	{
+		const FScopedCanvasFlushDeferral FlushDeferral(Canvas);
+
+		for (const FSurfaceQueryTap& Tap : Taps)
+		{
+			if (Tap.SlotIndex < 0 || Tap.SlotIndex >= Destination->SizeX || Tap.Weight <= 0.0f)
+			{
+				continue;
+			}
+
+			Canvas->K2_DrawTexture(
+				Target,
+				FVector2D(Tap.SlotIndex, 0),
+				FVector2D::UnitVector,
+				Tap.AtlasUV,
+				FVector2D::ZeroVector,
+				FLinearColor(Tap.Weight, Tap.Weight, Tap.Weight, 1.0f),
+				BLEND_Additive,
+				0.0f,
+				FVector2D::ZeroVector);
+		}
+	}
+
+	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
 }
 
 void USurfaceAccumulationBuffer::PaintStrokes(
