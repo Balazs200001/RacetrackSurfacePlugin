@@ -1,6 +1,8 @@
 #include "SurfaceAccumulationSubsystem.h"
 
 #include "Components/SplineComponent.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "SurfaceAccumulationBuffer.h"
@@ -11,12 +13,32 @@ DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
 namespace
 {
+	void AnnounceOnScreen(FName MessageName, const FString& Text)
+	{
+		if (GEngine != nullptr)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				static_cast<uint64>(GetTypeHash(MessageName)),
+				6.0f,
+				FColor::White,
+				Text);
+		}
+	}
+
+	void AnnounceDepositionScale(IConsoleVariable* Variable)
+	{
+		AnnounceOnScreen(
+			TEXT("RacetrackSurface.DepositionScale"),
+			FString::Printf(TEXT("Deposition now %.2fx the derived rate"), Variable->GetFloat()));
+	}
+
 	TAutoConsoleVariable<float> CVarDepositionScale(
 		TEXT("r.RacetrackSurface.DepositionScale"),
 		1.0f,
 		TEXT("Multiplies how much exposure one contact deposits. 1 is the derived rate, at which ")
 		TEXT("buildup approaches saturation over roughly 500 contacts. Raise it to watch a session's ")
 		TEXT("worth of rubber accumulate in a few laps without time compression."),
+		FConsoleVariableDelegate::CreateStatic(&AnnounceDepositionScale),
 		ECVF_Default);
 }
 
