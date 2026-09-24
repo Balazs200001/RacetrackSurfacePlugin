@@ -18,6 +18,8 @@ namespace RacetrackSurfaceMapping
 		return FMath::Clamp(SlipAmount, 0.0f, 1.0f) * ExposurePerUnitSlip * FMath::Max(DepositionScale, 0.0f);
 	}
 
+	static constexpr double MaximumLateralExtrapolationSeconds = 1.0 / 30.0;
+
 	static constexpr float FallbackDecayHalfLifeSeconds = 900.0f;
 
 	static constexpr float DecayStepsPerHalfLife = 256.0f;

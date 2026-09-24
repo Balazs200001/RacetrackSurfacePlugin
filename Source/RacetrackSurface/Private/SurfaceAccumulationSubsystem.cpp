@@ -488,7 +488,11 @@ void USurfaceAccumulationSubsystem::BuildStrokes(
 		? EndDistance - Travel
 		: FMath::Clamp(EndDistance - Travel, 0.0, Length);
 
-	const double StartAlpha = EndAlpha - Contact.LateralOffsetAlphaPerSecond * DeltaSeconds;
+	const double LateralExtrapolationSeconds = FMath::Min(
+		static_cast<double>(DeltaSeconds),
+		RacetrackSurfaceMapping::MaximumLateralExtrapolationSeconds);
+
+	const double StartAlpha = EndAlpha - Contact.LateralOffsetAlphaPerSecond * LateralExtrapolationSeconds;
 
 	const double Span = EndDistance - StartDistance;
 	const double RowLength = Ribbon.RowLength();
