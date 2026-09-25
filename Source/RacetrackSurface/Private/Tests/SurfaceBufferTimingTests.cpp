@@ -110,12 +110,15 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 	const FSurfaceTrackRibbon Ribbon = MakeSquareTestRibbon(2048);
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
+	TStrongObjectPtr<USurfaceAccumulationBuffer> DecayBuffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA8))
+	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA8) || !DecayBuffer->Allocate(World, Ribbon, RTF_RGBA16f))
 	{
-		AddError(TEXT("Failed to allocate the accumulation buffer."));
+		AddError(TEXT("Failed to allocate the accumulation buffers."));
 		return false;
 	}
+
+	const float DecayStep = 1.0f / RacetrackSurfaceMapping::DecayStepsPerHalfLife;
 
 	const TArray<FSurfaceBrushStroke> SingleContact = MakeContactStrokes(Ribbon, 1);
 	const TArray<FSurfaceBrushStroke> FourContacts = MakeContactStrokes(Ribbon, 4);
@@ -123,7 +126,8 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 	const TArray<FSurfaceBrushStroke> EightyFannedContacts = MakeFannedContactStrokes(Ribbon, 80);
 
 	Buffer->PaintStrokes(World, FourContacts);
-	Buffer->ApplyDecay(World, 0.99f);
+	DecayBuffer->PaintStrokes(World, FourContacts);
+	DecayBuffer->ApplyDecay(DecayStep);
 	FlushRenderingCommands();
 
 	double SingleMedian = 0.0;
@@ -145,7 +149,7 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 			[&]() { Buffer->PaintStrokes(World, EightyFannedContacts); },
 			EightyFannedMedian,
 			EightyFannedMinimum)
-		&& SampleGpuWork([&]() { Buffer->ApplyDecay(World, 0.99f); }, DecayMedian, DecayMinimum);
+		&& SampleGpuWork([&]() { DecayBuffer->ApplyDecay(DecayStep); }, DecayMedian, DecayMinimum);
 
 	if (!bSampled)
 	{
@@ -171,7 +175,11 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 		TEXT("Paint 80 contacts, 80 distinct headings: median %.4f ms, min %.4f ms"),
 		EightyFannedMedian,
 		EightyFannedMinimum));
-	AddInfo(FString::Printf(TEXT("Full buffer decay: median %.4f ms, min %.4f ms"), DecayMedian, DecayMinimum));
+	AddInfo(FString::Printf(
+		TEXT("Full buffer decay, coupled compute pass on an RGBA16f buffer of the same size: median %.4f ms, "
+			"min %.4f ms"),
+		DecayMedian,
+		DecayMinimum));
 
 	const double GateTotal = FourMedian + DecayMedian;
 
@@ -227,13 +235,15 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	Buffer->ApplyDecay(World, 0.997296f);
+	const float DecayStep = 1.0f / RacetrackSurfaceMapping::DecayStepsPerHalfLife;
+
+	Buffer->ApplyDecay(DecayStep);
 	FlushRenderingCommands();
 
 	double DecayMedian = 0.0;
 	double DecayMinimum = 0.0;
 
-	if (!SampleGpuWork([&]() { Buffer->ApplyDecay(World, 0.997296f); }, DecayMedian, DecayMinimum))
+	if (!SampleGpuWork([&]() { Buffer->ApplyDecay(DecayStep); }, DecayMedian, DecayMinimum))
 	{
 		AddError(TEXT("Timestamp query readback failed despite reported support."));
 		return false;

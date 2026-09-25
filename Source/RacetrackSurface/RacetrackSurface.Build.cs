@@ -18,6 +18,7 @@ public class RacetrackSurface : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
+				"Projects",
 				"RHI",
 				"RenderCore"
 			}

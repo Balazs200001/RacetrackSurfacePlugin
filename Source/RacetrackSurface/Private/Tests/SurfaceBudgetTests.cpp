@@ -8,6 +8,7 @@
 #include "RenderingThread.h"
 #include "RHIGlobals.h"
 #include "SurfaceAccumulationBuffer.h"
+#include "SurfaceAccumulationMapping.h"
 #include "SurfaceAccumulationSubsystem.h"
 #include "Tests/RacetrackSurfaceTestHelpers.h"
 #include "Tests/SurfaceGpuTiming.h"
@@ -201,9 +202,16 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 			}
 
 			const TArray<FSurfaceBrushStroke> FourContacts = MakeStrokes(Ribbon, 4, 0.8f);
+			const float DecayStep = 1.0f / RacetrackSurfaceMapping::DecayStepsPerHalfLife;
+			const bool bDecaysInPlace = Buffer->CanDecayInPlace();
 
 			Buffer->PaintStrokes(World, FourContacts);
-			Buffer->ApplyDecay(World, 0.99f);
+
+			if (bDecaysInPlace)
+			{
+				Buffer->ApplyDecay(DecayStep);
+			}
+
 			FlushRenderingCommands();
 
 			double PaintMedian = 0.0;
@@ -214,8 +222,9 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 			const bool bSampled =
 				RacetrackSurfaceTest::SampleGpuWork(
 					[&]() { Buffer->PaintStrokes(World, FourContacts); }, PaintMedian, PaintMinimum)
-				&& RacetrackSurfaceTest::SampleGpuWork(
-					[&]() { Buffer->ApplyDecay(World, 0.99f); }, DecayMedian, DecayMinimum);
+				&& (!bDecaysInPlace
+					|| RacetrackSurfaceTest::SampleGpuWork(
+						[&]() { Buffer->ApplyDecay(DecayStep); }, DecayMedian, DecayMinimum));
 
 			if (!bSampled)
 			{
@@ -229,7 +238,7 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 				Resolution * CarriedOverCentimetresPerTexel / 100.0;
 
 			AddInfo(FString::Printf(
-				TEXT("%d | %s | %lld | %.1f | %.1f | %.1f | %.4f ms | %.4f ms"),
+				TEXT("%d | %s | %lld | %.1f | %.1f | %.1f | %.4f ms | %s"),
 				Resolution,
 				Candidate.Name,
 				Buffer->GetAllocatedBytes(),
@@ -237,7 +246,9 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 				RibbonMetres,
 				RibbonMetres,
 				PaintMedian,
-				DecayMedian));
+				bDecaysInPlace
+					? *FString::Printf(TEXT("%.4f ms"), DecayMedian)
+					: TEXT("cannot decay in place, no typed UAV loads for this format")));
 
 			Buffer->Release();
 		}

@@ -11,8 +11,11 @@
 #include "RHIGlobals.h"
 #include "RHIResources.h"
 #include "RenderingThread.h"
+#include "SurfaceAccumulationMapping.h"
 #include "SurfaceAccumulationSubsystem.h"
+#include "SurfaceDecayPass.h"
 #include "SurfaceQueryGather.h"
+#include "TextureResource.h"
 
 namespace
 {
@@ -221,6 +224,8 @@ bool USurfaceAccumulationBuffer::Allocate(
 
 	Release();
 
+	const bool bDecaysInPlace = Format == RTF_RGBA16f && RHIIsTypedUAVLoadSupported(PF_FloatRGBA);
+
 	Target = UKismetRenderingLibrary::CreateRenderTarget2D(
 		WorldContext,
 		ClampedWidth,
@@ -228,7 +233,7 @@ bool USurfaceAccumulationBuffer::Allocate(
 		Format,
 		FLinearColor::Black,
 		false,
-		false);
+		bDecaysInPlace);
 
 	if (Target == nullptr)
 	{
@@ -241,11 +246,15 @@ bool USurfaceAccumulationBuffer::Allocate(
 	AllocatedFormat = Format;
 
 	UE_LOG(LogRacetrackSurface, Log,
-		TEXT("Accumulation buffer allocated at %d x %d in %d rows, %lld bytes"),
+		TEXT("Accumulation buffer allocated at %d x %d in %d rows, %lld bytes, %s"),
 		AllocatedWidth,
 		AllocatedHeight,
 		AllocatedRowCount,
-		GetAllocatedBytes());
+		GetAllocatedBytes(),
+		bDecaysInPlace
+			? TEXT("with a UAV so it decays in place")
+			: TEXT("without a UAV, so it cannot decay: in-place decay rounds to half floats and needs RGBA16f "
+				"with typed UAV loads"));
 
 	return true;
 }
@@ -415,43 +424,38 @@ void USurfaceAccumulationBuffer::SweepStrokes(
 	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
 }
 
-void USurfaceAccumulationBuffer::ApplyDecay(UObject* WorldContext, float Retention)
+bool USurfaceAccumulationBuffer::CanDecayInPlace() const
 {
-	if (Target == nullptr || WorldContext == nullptr)
+	return Target != nullptr && Target->bCanCreateUAV;
+}
+
+bool USurfaceAccumulationBuffer::ApplyDecay(float HalfLivesElapsed)
+{
+	if (Target == nullptr || HalfLivesElapsed <= 0.0f)
 	{
-		return;
+		return false;
 	}
 
-	EnsureSolid();
-
-	if (Solid == nullptr)
+	if (!CanDecayInPlace())
 	{
-		return;
+		UE_LOG(LogRacetrackSurface, Warning,
+			TEXT("Decay skipped: the %s accumulation target has no UAV. In-place decay rounds to half floats, "
+				"so it needs RGBA16f and an RHI with typed UAV loads for it"),
+			GPixelFormats[Target->GetFormat()].Name);
+
+		return false;
 	}
 
-	const float Clamped = FMath::Clamp(Retention, 0.0f, 1.0f);
+	FTextureRenderTargetResource* Resource = Target->GameThread_GetRenderTargetResource();
 
-	UCanvas* Canvas = nullptr;
-	FVector2D CanvasSize = FVector2D::ZeroVector;
-	FDrawToRenderTargetContext Context;
-
-	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(WorldContext, Target, Canvas, CanvasSize, Context);
-
-	if (Canvas != nullptr)
+	if (Resource == nullptr)
 	{
-		Canvas->K2_DrawTexture(
-			Solid,
-			FVector2D::ZeroVector,
-			CanvasSize,
-			FVector2D::ZeroVector,
-			FVector2D::UnitVector,
-			FLinearColor(Clamped, Clamped, Clamped, 1.0f),
-			BLEND_Modulate,
-			0.0f,
-			FVector2D::ZeroVector);
+		return false;
 	}
 
-	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
+	RacetrackSurfaceDecayPass::Enqueue(Resource, HalfLivesElapsed, RacetrackSurfaceMapping::SaturationConstant);
+
+	return true;
 }
 
 void USurfaceAccumulationBuffer::Clear(UObject* WorldContext)

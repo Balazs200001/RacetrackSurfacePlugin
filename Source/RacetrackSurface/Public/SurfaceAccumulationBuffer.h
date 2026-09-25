@@ -40,7 +40,9 @@ public:
 		EAccumulationChannel SweptChannel,
 		float Retention);
 
-	void ApplyDecay(UObject* WorldContext, float Retention);
+	bool ApplyDecay(float HalfLivesElapsed);
+
+	bool CanDecayInPlace() const;
 
 	void Clear(UObject* WorldContext);
 

@@ -42,6 +42,16 @@ namespace RacetrackSurfaceMapping
 			: FMath::Clamp(FMath::Exp2(-ProgressInHalfLives), 0.0f, 1.0f);
 	}
 
+	inline float SkidDecayRateMultiplier(float RubberExposure)
+	{
+		return 1.0f + SaturationConstant * FMath::Max(RubberExposure, 0.0f);
+	}
+
+	inline float SkidRetentionForProgress(float ProgressInHalfLives, float RubberExposure)
+	{
+		return DecayRetentionForProgress(ProgressInHalfLives * SkidDecayRateMultiplier(RubberExposure));
+	}
+
 	static constexpr const TCHAR* ParameterCollectionAssetPath =
 		TEXT("/RacetrackSurface/Materials/MPC_RacetrackSurface.MPC_RacetrackSurface");
 

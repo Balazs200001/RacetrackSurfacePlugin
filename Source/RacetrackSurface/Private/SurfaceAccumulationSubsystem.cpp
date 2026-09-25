@@ -294,10 +294,12 @@ void USurfaceAccumulationSubsystem::ApplyDecayWhenAStepHasElapsed(float DeltaSec
 		return;
 	}
 
-	Buffer->ApplyDecay(this, RacetrackSurfaceMapping::DecayRetentionForProgress(DecayProgressInHalfLives));
+	if (Buffer->ApplyDecay(DecayProgressInHalfLives))
+	{
+		++DecayPassCount;
+	}
 
 	DecayProgressInHalfLives = 0.0f;
-	++DecayPassCount;
 }
 
 int32 USurfaceAccumulationSubsystem::GetContactsDiscardedOutsideRibbon() const
