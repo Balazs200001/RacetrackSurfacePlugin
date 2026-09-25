@@ -2,8 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "Components/SplineComponent.h"
+#include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "Kismet/KismetRenderingLibrary.h"
 #include "UObject/StrongObjectPtr.h"
 #include "SurfaceTrackRibbon.h"
 
@@ -88,6 +91,34 @@ namespace RacetrackSurfaceTest
 		}
 
 		return nullptr;
+	}
+
+	inline void DrawUniformDecayQuadAsShippedInC10(
+		UObject* WorldContext,
+		UTextureRenderTarget2D* Target,
+		float Retention)
+	{
+		UCanvas* Canvas = nullptr;
+		FVector2D CanvasSize = FVector2D::ZeroVector;
+		FDrawToRenderTargetContext Context;
+
+		UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(WorldContext, Target, Canvas, CanvasSize, Context);
+
+		if (Canvas != nullptr)
+		{
+			Canvas->K2_DrawTexture(
+				nullptr,
+				FVector2D::ZeroVector,
+				CanvasSize,
+				FVector2D::ZeroVector,
+				FVector2D::UnitVector,
+				FLinearColor(Retention, Retention, Retention, 1.0f),
+				BLEND_Modulate,
+				0.0f,
+				FVector2D::ZeroVector);
+		}
+
+		UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
 	}
 }
 
