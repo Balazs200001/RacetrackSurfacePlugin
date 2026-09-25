@@ -294,7 +294,7 @@ void USurfaceAccumulationSubsystem::ApplyDecayWhenAStepHasElapsed(float DeltaSec
 		return;
 	}
 
-	if (Buffer->ApplyDecay(DecayProgressInHalfLives))
+	if (Buffer->ApplyDecay(this, DecayProgressInHalfLives))
 	{
 		++DecayPassCount;
 	}

@@ -313,7 +313,7 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 	{
 		const TArray<FLinearColor> Before = ReadWholeTarget(World, Buffer->GetTarget());
 
-		if (!Buffer->ApplyDecay(HalfLivesElapsed))
+		if (!Buffer->ApplyDecay(World, HalfLivesElapsed))
 		{
 			AddError(TEXT("The decay pass was not issued."));
 			Buffer->Release();
@@ -394,7 +394,7 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 
 	for (int32 Step = 0; Step < StepsInAHalfLife; ++Step)
 	{
-		Buffer->ApplyDecay(StepHalfLives);
+		Buffer->ApplyDecay(World, StepHalfLives);
 	}
 
 	FlushRenderingCommands();

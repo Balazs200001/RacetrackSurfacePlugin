@@ -242,7 +242,7 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 
 	Buffer->PaintStrokes(World, FourContacts);
 	DecayBuffer->PaintStrokes(World, FourContacts);
-	DecayBuffer->ApplyDecay(DecayStep);
+	DecayBuffer->ApplyDecay(World, DecayStep);
 	FlushRenderingCommands();
 
 	double SingleMedian = 0.0;
@@ -264,7 +264,7 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 			[&]() { Buffer->PaintStrokes(World, EightyFannedContacts); },
 			EightyFannedMedian,
 			EightyFannedMinimum)
-		&& SampleGpuWork([&]() { DecayBuffer->ApplyDecay(DecayStep); }, DecayMedian, DecayMinimum);
+		&& SampleGpuWork([&]() { DecayBuffer->ApplyDecay(World, DecayStep); }, DecayMedian, DecayMinimum);
 
 	if (!bSampled)
 	{
@@ -371,7 +371,7 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 	const float Retention = RacetrackSurfaceMapping::DecayRetentionForProgress(DecayStep);
 
 	TArray<RacetrackSurfaceDecayTiming::FTimedPass> Passes;
-	Passes.Add({ TEXT("coupled compute pass, UAV target"), [&]() { Buffer->ApplyDecay(DecayStep); } });
+	Passes.Add({ TEXT("coupled compute pass, UAV target"), [&]() { Buffer->ApplyDecay(World, DecayStep); } });
 	Passes.Add({ TEXT("C10 quad, plain target as shipped"), [&]()
 	{
 		RacetrackSurfaceTest::DrawUniformDecayQuadAsShippedInC10(World, ShippedInC10.Get(), Retention);

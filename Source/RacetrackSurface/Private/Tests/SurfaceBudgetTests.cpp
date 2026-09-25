@@ -206,12 +206,7 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 			const bool bDecaysInPlace = Buffer->CanDecayInPlace();
 
 			Buffer->PaintStrokes(World, FourContacts);
-
-			if (bDecaysInPlace)
-			{
-				Buffer->ApplyDecay(DecayStep);
-			}
-
+			Buffer->ApplyDecay(World, DecayStep);
 			FlushRenderingCommands();
 
 			double PaintMedian = 0.0;
@@ -222,9 +217,8 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 			const bool bSampled =
 				RacetrackSurfaceTest::SampleGpuWork(
 					[&]() { Buffer->PaintStrokes(World, FourContacts); }, PaintMedian, PaintMinimum)
-				&& (!bDecaysInPlace
-					|| RacetrackSurfaceTest::SampleGpuWork(
-						[&]() { Buffer->ApplyDecay(DecayStep); }, DecayMedian, DecayMinimum));
+				&& RacetrackSurfaceTest::SampleGpuWork(
+					[&]() { Buffer->ApplyDecay(World, DecayStep); }, DecayMedian, DecayMinimum);
 
 			if (!bSampled)
 			{
@@ -238,7 +232,7 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 				Resolution * CarriedOverCentimetresPerTexel / 100.0;
 
 			AddInfo(FString::Printf(
-				TEXT("%d | %s | %lld | %.1f | %.1f | %.1f | %.4f ms | %s"),
+				TEXT("%d | %s | %lld | %.1f | %.1f | %.1f | %.4f ms | %.4f ms, %s"),
 				Resolution,
 				Candidate.Name,
 				Buffer->GetAllocatedBytes(),
@@ -246,9 +240,8 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 				RibbonMetres,
 				RibbonMetres,
 				PaintMedian,
-				bDecaysInPlace
-					? *FString::Printf(TEXT("%.4f ms"), DecayMedian)
-					: TEXT("cannot decay in place, the pass rounds to half floats so only RGBA16f decays")));
+				DecayMedian,
+				bDecaysInPlace ? TEXT("coupled in place") : TEXT("uniform canvas fallback")));
 
 			Buffer->Release();
 		}

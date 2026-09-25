@@ -253,8 +253,8 @@ bool USurfaceAccumulationBuffer::Allocate(
 		GetAllocatedBytes(),
 		bDecaysInPlace
 			? TEXT("with a UAV so it decays in place")
-			: TEXT("without a UAV, so it cannot decay: in-place decay rounds to half floats and needs RGBA16f "
-				"with typed UAV loads"));
+			: TEXT("without a UAV, so it decays uniformly on the canvas and skid is not paved over: in-place "
+				"decay rounds to half floats and needs RGBA16f with typed UAV loads"));
 
 	return true;
 }
@@ -287,6 +287,7 @@ void USurfaceAccumulationBuffer::Release()
 	AllocatedWidth = 0;
 	AllocatedHeight = 0;
 	AllocatedRowCount = 1;
+	bWarnedThatDecayIsUniform = false;
 }
 
 int64 USurfaceAccumulationBuffer::GetAllocatedBytes() const
@@ -429,7 +430,7 @@ bool USurfaceAccumulationBuffer::CanDecayInPlace() const
 	return Target != nullptr && Target->bCanCreateUAV;
 }
 
-bool USurfaceAccumulationBuffer::ApplyDecay(float HalfLivesElapsed)
+bool USurfaceAccumulationBuffer::ApplyDecay(UObject* WorldContext, float HalfLivesElapsed)
 {
 	if (Target == nullptr || HalfLivesElapsed <= 0.0f)
 	{
@@ -438,12 +439,18 @@ bool USurfaceAccumulationBuffer::ApplyDecay(float HalfLivesElapsed)
 
 	if (!CanDecayInPlace())
 	{
-		UE_LOG(LogRacetrackSurface, Warning,
-			TEXT("Decay skipped: the %s accumulation target has no UAV. In-place decay rounds to half floats, "
-				"so it needs RGBA16f and an RHI with typed UAV loads for it"),
-			GPixelFormats[Target->GetFormat()].Name);
+		if (!bWarnedThatDecayIsUniform)
+		{
+			bWarnedThatDecayIsUniform = true;
 
-		return false;
+			UE_LOG(LogRacetrackSurface, Warning,
+				TEXT("The %s accumulation target has no UAV, so it decays uniformly on the canvas and skid is not "
+					"paved over by rubber. In-place decay rounds to half floats, so it needs RGBA16f and an RHI "
+					"with typed UAV loads for it"),
+				GPixelFormats[Target->GetFormat()].Name);
+		}
+
+		return ApplyUniformDecayOnCanvas(WorldContext, HalfLivesElapsed);
 	}
 
 	FTextureRenderTargetResource* Resource = Target->GameThread_GetRenderTargetResource();
@@ -456,6 +463,47 @@ bool USurfaceAccumulationBuffer::ApplyDecay(float HalfLivesElapsed)
 	RacetrackSurfaceDecayPass::Enqueue(Resource, HalfLivesElapsed, RacetrackSurfaceMapping::SaturationConstant);
 
 	return true;
+}
+
+bool USurfaceAccumulationBuffer::ApplyUniformDecayOnCanvas(UObject* WorldContext, float HalfLivesElapsed)
+{
+	if (WorldContext == nullptr)
+	{
+		return false;
+	}
+
+	EnsureSolid();
+
+	if (Solid == nullptr)
+	{
+		return false;
+	}
+
+	const float Retention = RacetrackSurfaceMapping::DecayRetentionForProgress(HalfLivesElapsed);
+
+	UCanvas* Canvas = nullptr;
+	FVector2D CanvasSize = FVector2D::ZeroVector;
+	FDrawToRenderTargetContext Context;
+
+	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(WorldContext, Target, Canvas, CanvasSize, Context);
+
+	if (Canvas != nullptr)
+	{
+		Canvas->K2_DrawTexture(
+			Solid,
+			FVector2D::ZeroVector,
+			CanvasSize,
+			FVector2D::ZeroVector,
+			FVector2D::UnitVector,
+			FLinearColor(Retention, Retention, Retention, 1.0f),
+			BLEND_Modulate,
+			0.0f,
+			FVector2D::ZeroVector);
+	}
+
+	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
+
+	return Canvas != nullptr;
 }
 
 void USurfaceAccumulationBuffer::Clear(UObject* WorldContext)

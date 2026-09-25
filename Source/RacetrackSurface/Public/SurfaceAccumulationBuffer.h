@@ -40,7 +40,7 @@ public:
 		EAccumulationChannel SweptChannel,
 		float Retention);
 
-	bool ApplyDecay(float HalfLivesElapsed);
+	bool ApplyDecay(UObject* WorldContext, float HalfLivesElapsed);
 
 	bool CanDecayInPlace() const;
 
@@ -91,6 +91,8 @@ private:
 
 	void EnsureSolid();
 
+	bool ApplyUniformDecayOnCanvas(UObject* WorldContext, float HalfLivesElapsed);
+
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> Target;
 
@@ -110,4 +112,6 @@ private:
 	int32 AllocatedRowCount = 1;
 
 	ETextureRenderTargetFormat AllocatedFormat = RTF_RGBA16f;
+
+	bool bWarnedThatDecayIsUniform = false;
 };
