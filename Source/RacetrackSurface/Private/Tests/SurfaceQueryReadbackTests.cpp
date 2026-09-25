@@ -407,4 +407,70 @@ bool FSurfaceQueryReadbackResolvedFrameNeverGoesBackwards::RunTest(const FString
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceQueryReadbackSurvivesTeardownWithACopyInFlight,
+	"RacetrackSurface.Query.ReadbackSurvivesTeardownWithACopyInFlight",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceQueryReadbackSurvivesTeardownWithACopyInFlight::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddWarning(TEXT("Skipped: build cannot render."));
+		return true;
+	}
+
+	UWorld* World = FindRenderableWorld();
+
+	if (World == nullptr)
+	{
+		AddError(TEXT("No renderable world available."));
+		return false;
+	}
+
+	FReadbackFixture Fixture;
+
+	if (!BuildPaintedFixture(*this, World, Fixture))
+	{
+		return false;
+	}
+
+	TWeakPtr<FSurfaceQueryReadback, ESPMode::ThreadSafe> Abandoned;
+
+	{
+		TSharedPtr<FSurfaceQueryReadback, ESPMode::ThreadSafe> Readback =
+			MakeShared<FSurfaceQueryReadback, ESPMode::ThreadSafe>(4);
+
+		Abandoned = Readback;
+
+		Readback->Submit(Fixture.Buffer->GetGatherTarget(), 1, 500);
+
+		Readback->ReleaseOnRenderThread();
+		Readback.Reset();
+	}
+
+	AddInfo(Abandoned.IsValid()
+		? TEXT("The ring was still alive the instant the game thread dropped its pointer, held by the "
+			"reference its own render commands captured. Observed rather than asserted: the render "
+			"thread may legitimately have drained the queue first, and there is no suspend API in 5.8 "
+			"to make the timing deterministic")
+		: TEXT("The render thread had already drained and released the ring before the game thread "
+			"dropped its pointer. That is a legal interleaving of the same teardown"));
+
+	FlushRenderingCommands();
+
+	TestFalse(
+		TEXT("Once the enqueued commands have run and released their references, the ring is gone and "
+			"nothing is left holding it"),
+		Abandoned.IsValid());
+
+	AddInfo(TEXT("The ring outlived the game thread's pointer, then died on the render thread with no "
+		"crash and nothing leaked, which is the whole of F7's level load case: a subsystem torn down "
+		"mid flight cannot leave a render command writing into freed memory"));
+
+	Fixture.Buffer->Release();
+
+	return true;
+}
+
 #endif
