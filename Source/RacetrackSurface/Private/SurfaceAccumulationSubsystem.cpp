@@ -804,7 +804,7 @@ void USurfaceAccumulationSubsystem::ResolveSurfaceQueries()
 	{
 		GatherTargetWidthInFlight = GatherTarget->SizeX;
 
-		QueryReadback->Invalidate();
+		QueryReadback->RebuildForANewSourceSize();
 
 		UE_LOG(LogRacetrackSurface, Log,
 			TEXT("Query gather target resized to %d slots, so the readback staging textures are rebuilt. ")

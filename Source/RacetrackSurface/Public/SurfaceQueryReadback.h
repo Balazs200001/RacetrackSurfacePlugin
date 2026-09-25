@@ -26,6 +26,8 @@ public:
 
 	void Invalidate();
 
+	void RebuildForANewSourceSize();
+
 	bool CopyResolved(TArray<FLinearColor>& OutSlots, uint64& OutSubmittedOnFrame) const;
 
 	void ReleaseOnRenderThread();
@@ -58,6 +60,11 @@ public:
 	int32 GetResolveCount() const
 	{
 		return ResolveCount.GetValue();
+	}
+
+	int32 GetStagingRebuildCount() const
+	{
+		return StagingRebuilds.GetValue();
 	}
 
 private:
@@ -103,4 +110,6 @@ private:
 	FThreadSafeCounter ResolveCount;
 
 	FThreadSafeCounter ResolvesDiscardedFromAnOldEpoch;
+
+	FThreadSafeCounter StagingRebuilds;
 };

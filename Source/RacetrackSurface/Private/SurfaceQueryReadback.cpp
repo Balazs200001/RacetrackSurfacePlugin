@@ -85,6 +85,22 @@ void FSurfaceQueryReadback::Invalidate()
 
 }
 
+void FSurfaceQueryReadback::RebuildForANewSourceSize()
+{
+	Invalidate();
+
+	StagingRebuilds.Increment();
+
+	TSharedRef<FSurfaceQueryReadback, ESPMode::ThreadSafe> Self = AsShared();
+
+	ENQUEUE_RENDER_COMMAND(RacetrackSurfaceQueryReadbackRebuild)(
+		[Self](FRHICommandListImmediate&)
+		{
+			Self->Ring.Reset();
+			Self->Ring.SetNum(Self->RingDepth);
+		});
+}
+
 void FSurfaceQueryReadback::ReleaseOnRenderThread()
 {
 	TSharedRef<FSurfaceQueryReadback, ESPMode::ThreadSafe> Self = AsShared();
