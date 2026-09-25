@@ -326,6 +326,103 @@ bool FSurfaceQueryReadbackLosesNoSubmissionWhenTheRingFills::RunTest(const FStri
 	return true;
 }
 
+namespace
+{
+	constexpr int32 MonotonicSubmissionCount = 24;
+
+	struct FMonotonicReadbackScenario
+	{
+		FReadbackFixture Fixture;
+
+		TSharedPtr<FSurfaceQueryReadback, ESPMode::ThreadSafe> Readback;
+
+		uint64 Frame = 0;
+
+		uint64 Highest = 0;
+
+		int32 Observations = 0;
+
+		void Finish()
+		{
+			if (Readback.IsValid())
+			{
+				Readback->ReleaseOnRenderThread();
+				Readback.Reset();
+			}
+
+			FlushRenderingCommands();
+
+			if (Fixture.Buffer.IsValid())
+			{
+				Fixture.Buffer->Release();
+			}
+		}
+	};
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
+	FReadbackResolvedFrameNeverGoesBackwardsLatentCommand,
+	FAutomationTestBase*, Test,
+	TSharedPtr<FMonotonicReadbackScenario>, Scenario);
+
+bool FReadbackResolvedFrameNeverGoesBackwardsLatentCommand::Update()
+{
+	FMonotonicReadbackScenario& State = *Scenario;
+
+	if (!State.Readback.IsValid())
+	{
+		return true;
+	}
+
+	++State.Frame;
+
+	State.Readback->Submit(State.Fixture.Buffer->GetGatherTarget(), 1, State.Frame);
+
+	TArray<FLinearColor> Slots;
+	uint64 ResolvedFrame = 0;
+
+	if (State.Readback->CopyResolved(Slots, ResolvedFrame))
+	{
+		if (ResolvedFrame < State.Highest)
+		{
+			Test->AddError(FString::Printf(
+				TEXT("The cache went backwards in time, from frame %llu to frame %llu"),
+				State.Highest,
+				ResolvedFrame));
+
+			State.Finish();
+
+			return true;
+		}
+
+		State.Highest = ResolvedFrame;
+		++State.Observations;
+	}
+
+	if (State.Frame < MonotonicSubmissionCount)
+	{
+		return false;
+	}
+
+	Test->AddInfo(FString::Printf(
+		TEXT("Twenty four submissions, one per engine frame, gave %d readable caches, the newest stamped "
+			"frame %llu, with %d resolves and %d dropped"),
+		State.Observations,
+		State.Highest,
+		State.Readback->GetResolveCount(),
+		State.Readback->GetSubmissionsDroppedWhileFull()));
+
+	Test->TestTrue(
+		TEXT("The cache became readable at some point during the run. One submission per engine frame "
+			"rather than per FlushRenderingCommands, because the flush waits for the render thread and "
+			"not the GPU, so a spin of flushes only resolves if the GPU happens to be idle"),
+		State.Observations > 0);
+
+	State.Finish();
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSurfaceQueryReadbackResolvedFrameNeverGoesBackwards,
 	"RacetrackSurface.Query.ReadbackResolvedFrameNeverGoesBackwards",
@@ -347,62 +444,17 @@ bool FSurfaceQueryReadbackResolvedFrameNeverGoesBackwards::RunTest(const FString
 		return false;
 	}
 
-	FReadbackFixture Fixture;
+	TSharedPtr<FMonotonicReadbackScenario> Scenario = MakeShared<FMonotonicReadbackScenario>();
 
-	if (!BuildPaintedFixture(*this, World, Fixture))
+	if (!BuildPaintedFixture(*this, World, Scenario->Fixture))
 	{
 		return false;
 	}
 
-	const TSharedRef<FSurfaceQueryReadback, ESPMode::ThreadSafe> Readback =
+	Scenario->Readback =
 		MakeShared<FSurfaceQueryReadback, ESPMode::ThreadSafe>(FSurfaceQueryReadback::GetConfiguredRingDepth());
 
-	uint64 Highest = 0;
-	int32 Observations = 0;
-
-	for (int32 Frame = 1; Frame <= 24; ++Frame)
-	{
-		Readback->Submit(Fixture.Buffer->GetGatherTarget(), 1, Frame);
-		FlushRenderingCommands();
-
-		TArray<FLinearColor> Slots;
-		uint64 ResolvedFrame = 0;
-
-		if (!Readback->CopyResolved(Slots, ResolvedFrame))
-		{
-			continue;
-		}
-
-		if (ResolvedFrame < Highest)
-		{
-			AddError(FString::Printf(
-				TEXT("The cache went backwards in time, from frame %llu to frame %llu"),
-				Highest,
-				ResolvedFrame));
-
-			Readback->ReleaseOnRenderThread();
-			FlushRenderingCommands();
-			Fixture.Buffer->Release();
-			return false;
-		}
-
-		Highest = ResolvedFrame;
-		++Observations;
-	}
-
-	AddInfo(FString::Printf(
-		TEXT("Twenty four submissions gave %d readable caches, the newest stamped frame %llu, "
-			"with %d resolves and %d dropped"),
-		Observations,
-		Highest,
-		Readback->GetResolveCount(),
-		Readback->GetSubmissionsDroppedWhileFull()));
-
-	TestTrue(TEXT("The cache became readable at some point during the run"), Observations > 0);
-
-	Readback->ReleaseOnRenderThread();
-	FlushRenderingCommands();
-	Fixture.Buffer->Release();
+	ADD_LATENT_AUTOMATION_COMMAND(FReadbackResolvedFrameNeverGoesBackwardsLatentCommand(this, Scenario));
 
 	return true;
 }
