@@ -221,4 +221,72 @@ bool FSurfaceDecayStepSurvivesHalfFloatRounding::RunTest(const FString& Paramete
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfaceSkidRetentionIsNeverCloserToOneThanTheSharedRetention,
+	"RacetrackSurface.Mapping.SkidRetentionIsNeverCloserToOneThanTheSharedRetention",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfaceSkidRetentionIsNeverCloserToOneThanTheSharedRetention::RunTest(const FString& Parameters)
+{
+	const float StepProgress = 1.0f / RacetrackSurfaceMapping::DecayStepsPerHalfLife;
+	const float SharedRetention = RacetrackSurfaceMapping::DecayRetentionForProgress(StepProgress);
+	const float Threshold = RacetrackSurfaceMapping::HalfFloatGuaranteedChangeThreshold;
+
+	const float RubberExposures[] = { -1.0f, 0.0f, 1.0e-6f, 0.1224f, 1.0f, 4.0f, 32.0f, 64.0f };
+
+	for (const float RubberExposure : RubberExposures)
+	{
+		const float SkidRetention = RacetrackSurfaceMapping::SkidRetentionForProgress(StepProgress, RubberExposure);
+
+		AddInfo(FString::Printf(
+			TEXT("Rubber exposure %.4f: skid decays %.4f times the shared rate and one step retains %.6f "
+				"against the shared %.6f, a change of %.3e against the %.3e threshold"),
+			RubberExposure,
+			RacetrackSurfaceMapping::SkidDecayRateMultiplier(RubberExposure),
+			SkidRetention,
+			SharedRetention,
+			1.0f - SkidRetention,
+			Threshold));
+
+		TestTrue(
+			*FString::Printf(
+				TEXT("At rubber exposure %.4f one skid step retains no more than the shared step, so no texel "
+					"can decay slower than the channels whose step already clears the half-float floor"),
+				RubberExposure),
+			SkidRetention <= SharedRetention);
+
+		TestTrue(
+			*FString::Printf(
+				TEXT("At rubber exposure %.4f one skid step still moves a half float by more than the largest "
+					"half-ulp"),
+				RubberExposure),
+			1.0f - SkidRetention > Threshold);
+	}
+
+	TestEqual(
+		TEXT("Bare track decays skid at exactly the shared rate, so the coupling reduces to C10's pass off the "
+			"line"),
+		RacetrackSurfaceMapping::SkidRetentionForProgress(StepProgress, 0.0f),
+		SharedRetention);
+
+	TestEqual(
+		TEXT("Negative exposure cannot slow skid below the shared rate"),
+		RacetrackSurfaceMapping::SkidRetentionForProgress(StepProgress, -1.0f),
+		SharedRetention);
+
+	TestEqual(
+		TEXT("At the calibrated apex exposure of 1.0, skid decays 1 + k = 4 times as fast"),
+		RacetrackSurfaceMapping::SkidDecayRateMultiplier(1.0f),
+		1.0f + RacetrackSurfaceMapping::SaturationConstant);
+
+	TestTrue(
+		TEXT("Over one half-life at the calibrated apex, skid falls to 2^-4 of what was laid"),
+		FMath::IsNearlyEqual(
+			RacetrackSurfaceMapping::SkidRetentionForProgress(1.0f, 1.0f),
+			FMath::Exp2(-(1.0f + RacetrackSurfaceMapping::SaturationConstant)),
+			1.0e-6f));
+
+	return true;
+}
+
 #endif
