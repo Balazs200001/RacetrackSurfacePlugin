@@ -248,7 +248,7 @@ bool FSurfaceRegionBudgetSweep::RunTest(const FString& Parameters)
 				PaintMedian,
 				bDecaysInPlace
 					? *FString::Printf(TEXT("%.4f ms"), DecayMedian)
-					: TEXT("cannot decay in place, no typed UAV loads for this format")));
+					: TEXT("cannot decay in place, the pass rounds to half floats so only RGBA16f decays")));
 
 			Buffer->Release();
 		}
