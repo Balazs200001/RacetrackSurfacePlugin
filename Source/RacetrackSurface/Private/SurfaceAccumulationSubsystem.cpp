@@ -841,7 +841,9 @@ void USurfaceAccumulationSubsystem::AppendStroke(
 		FSurfaceTrackRibbon::NormalisedAcrossTrack(ToAlpha));
 
 	Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(Contact.ContactWidth));
-	Stroke.Intensity = RacetrackSurfaceMapping::SlipToExposure(Contact.SlipAmount, GetDepositionScale());
+	Stroke.Intensity = RacetrackSurfaceMapping::IsLockup(Contact.SlipAmount)
+		? RacetrackSurfaceMapping::LockupExposure()
+		: RacetrackSurfaceMapping::SlipToExposure(Contact.SlipAmount, GetDepositionScale());
 	Stroke.RowIndex = RowIndex;
 	Stroke.Channel = TyreChannelForSlip(Contact.SlipAmount);
 

@@ -26,6 +26,10 @@ namespace
 
 	constexpr int32 QueryFrameBudget = 240;
 
+	constexpr float QueryLockupSlip = 1.0f;
+
+	constexpr float QueryRubberSlip = 0.5f;
+
 	struct FQueryScenario
 	{
 		TStrongObjectPtr<USplineComponent> Circuit;
@@ -84,7 +88,7 @@ namespace
 		return Coordinate;
 	}
 
-	void PaintTheMark(FQueryScenario& Scenario, float DepositionScale)
+	void PaintTheMark(FQueryScenario& Scenario, float DepositionScale, float SlipAmount)
 	{
 		IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(
 			RacetrackSurfaceMapping::DepositionScaleVariableName);
@@ -99,7 +103,7 @@ namespace
 		FSurfaceTrackContact Contact;
 		Contact.Coordinate = PaintedCoordinate(Scenario.Ribbon);
 		Contact.CentimetresPerSecondAlongCentreline = RaceSpeedCentimetresPerSecond;
-		Contact.SlipAmount = 1.0f;
+		Contact.SlipAmount = SlipAmount;
 		Contact.ContactWidth = 20.0f;
 
 		Scenario.Subsystem->RegisterSurfaceContactInTrackSpace(Contact);
@@ -233,7 +237,7 @@ bool FSurfaceQueryReturnsCoverageForEveryChannelAtOnce::RunTest(const FString& P
 		return true;
 	}
 
-	PaintTheMark(*Scenario, 0.0f);
+	PaintTheMark(*Scenario, 0.0f, QueryLockupSlip);
 
 	Scenario->Handle = Scenario->Subsystem->AcquireSurfaceQuery();
 
@@ -295,7 +299,7 @@ bool FSurfaceQueryReturnsCoverageNotExposure::RunTest(const FString& Parameters)
 		return true;
 	}
 
-	PaintTheMark(*Scenario, 400.0f);
+	PaintTheMark(*Scenario, 400.0f, QueryRubberSlip);
 
 	Scenario->Handle = Scenario->Subsystem->AcquireSurfaceQuery();
 	Scenario->Retarget(PaintedCoordinate(Scenario->Ribbon));
@@ -304,15 +308,15 @@ bool FSurfaceQueryReturnsCoverageNotExposure::RunTest(const FString& Parameters)
 	{
 		Test.TestTrue(
 			FString::Printf(
-				TEXT("A mark deposited at four hundred times the derived rate still reads inside the "
+				TEXT("A rubber mark deposited at four hundred times the derived rate still reads inside the "
 					"coverage range rather than returning raw exposure: %.6f"),
-				State.Sample.SkidMark),
-			State.Sample.SkidMark > 0.0f && State.Sample.SkidMark <= 1.0f);
+				State.Sample.RubberBuildup),
+			State.Sample.RubberBuildup > 0.0f && State.Sample.RubberBuildup <= 1.0f);
 
 		Test.TestTrue(
 			TEXT("Heavy deposition reads far higher than the derived rate does, so the curve is being "
 				"applied rather than the value being clamped"),
-			State.Sample.SkidMark > 0.1f);
+			State.Sample.RubberBuildup > 0.1f);
 	};
 
 	ADD_LATENT_AUTOMATION_COMMAND(FResolveSurfaceQueryLatentCommand(this, Scenario));
@@ -340,7 +344,7 @@ bool FSurfaceQueryDistinguishesOutsideTheRibbonFromZero::RunTest(const FString& 
 		return true;
 	}
 
-	PaintTheMark(*Scenario, 0.0f);
+	PaintTheMark(*Scenario, 0.0f, QueryLockupSlip);
 
 	Scenario->Handle = Scenario->Subsystem->AcquireSurfaceQuery();
 
@@ -499,7 +503,7 @@ bool FSurfaceQueryResetClearsTheCache::RunTest(const FString& Parameters)
 		return true;
 	}
 
-	PaintTheMark(*Scenario, 0.0f);
+	PaintTheMark(*Scenario, 0.0f, QueryLockupSlip);
 
 	Scenario->Handle = Scenario->Subsystem->AcquireSurfaceQuery();
 	Scenario->Retarget(PaintedCoordinate(Scenario->Ribbon));

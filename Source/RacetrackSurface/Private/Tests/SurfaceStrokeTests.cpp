@@ -1,4 +1,5 @@
 #include "Misc/AutomationTest.h"
+#include "Misc/ScopedCVar.h"
 #include "Components/SplineComponent.h"
 #include "UObject/StrongObjectPtr.h"
 #include "SurfaceAccumulationMapping.h"
@@ -442,16 +443,39 @@ bool FSurfaceStrokeConvertsWidthAndIntensity::RunTest(const FString& Parameters)
 {
 	const FHarness Harness = MakeHarness();
 
-	FSurfaceTrackContact Contact = MakeTrackContact(Harness.Length() * 0.5, 0.0, 1.0);
-	Contact.ContactWidth = 20.0f;
-	Contact.SlipAmount = 1.7f;
+	const FScopedCVar<float> DerivedDeposition(RacetrackSurfaceMapping::DepositionScaleVariableName, 1.0f);
 
-	TArray<FSurfaceBrushStroke> Strokes;
-	Harness.Subsystem->BuildStrokes(Contact, FrameSeconds, Strokes);
+	constexpr float RubberSlip = 0.5f;
+	constexpr float JustBelowALockup = 0.999f;
+	constexpr float ClampedToALockup = 1.7f;
 
-	if (Strokes.Num() != 1)
+	const auto BuildOneStroke = [&Harness](float SlipAmount, FSurfaceBrushStroke& OutStroke)
 	{
-		AddError(TEXT("Expected a single stroke."));
+		FSurfaceTrackContact Contact = MakeTrackContact(Harness.Length() * 0.5, 0.0, 1.0);
+		Contact.ContactWidth = 20.0f;
+		Contact.SlipAmount = SlipAmount;
+
+		TArray<FSurfaceBrushStroke> Strokes;
+		Harness.Subsystem->BuildStrokes(Contact, FrameSeconds, Strokes);
+
+		if (Strokes.Num() != 1)
+		{
+			return false;
+		}
+
+		OutStroke = Strokes[0];
+		return true;
+	};
+
+	FSurfaceBrushStroke Rubber;
+	FSurfaceBrushStroke NearlyLocked;
+	FSurfaceBrushStroke Lockup;
+
+	if (!BuildOneStroke(RubberSlip, Rubber)
+		|| !BuildOneStroke(JustBelowALockup, NearlyLocked)
+		|| !BuildOneStroke(ClampedToALockup, Lockup))
+	{
+		AddError(TEXT("Expected a single stroke from each contact."));
 		return false;
 	}
 
@@ -459,32 +483,58 @@ bool FSurfaceStrokeConvertsWidthAndIntensity::RunTest(const FString& Parameters)
 		static_cast<float>(20.0 / Harness.Ribbon.CentimetresPerTexel);
 
 	TestTrue(
-		FString::Printf(TEXT("Contact width converts from centimetres to texels, got %.4f"), Strokes[0].WidthInTexels),
-		FMath::IsNearlyEqual(Strokes[0].WidthInTexels, ExpectedWidthInTexels, UE_KINDA_SMALL_NUMBER));
+		FString::Printf(TEXT("Contact width converts from centimetres to texels, got %.4f"), Rubber.WidthInTexels),
+		FMath::IsNearlyEqual(Rubber.WidthInTexels, ExpectedWidthInTexels, UE_KINDA_SMALL_NUMBER));
+
+	TestEqual(TEXT("Slip below one resolves to the rubber channel"), Rubber.Channel, EAccumulationChannel::RubberBuildup);
 
 	TestTrue(
-		TEXT("Slip amount above one is clamped before it becomes exposure"),
+		FString::Printf(TEXT("Slip below one deposits slip times the derived rate, got %.6f"), Rubber.Intensity),
 		FMath::IsNearlyEqual(
-			Strokes[0].Intensity, RacetrackSurfaceMapping::ExposurePerUnitSlip, UE_KINDA_SMALL_NUMBER));
+			Rubber.Intensity, RubberSlip * RacetrackSurfaceMapping::ExposurePerUnitSlip, UE_KINDA_SMALL_NUMBER));
 
-	const int32 ContactsToSaturation = FMath::CeilToInt32(1.0f / RacetrackSurfaceMapping::ExposurePerUnitSlip);
+	TestEqual(
+		TEXT("Slip just below one is still rubber, so only a wheel that reports full slip is read as locked"),
+		NearlyLocked.Channel,
+		EAccumulationChannel::RubberBuildup);
+
+	TestEqual(TEXT("Slip above one is clamped to a lockup and resolves to the skid channel"),
+		Lockup.Channel, EAccumulationChannel::SkidMark);
+
+	TestTrue(
+		FString::Printf(TEXT("A lockup deposits the lockup exposure rather than a scaled slip, got %.5f against %.5f"),
+			Lockup.Intensity, RacetrackSurfaceMapping::LockupExposure()),
+		FMath::IsNearlyEqual(Lockup.Intensity, RacetrackSurfaceMapping::LockupExposure(), UE_KINDA_SMALL_NUMBER));
+
+	const int32 RubberContactsToSaturation = FMath::CeilToInt32(1.0f / Rubber.Intensity);
 	const float CoverageAtSaturation =
-		RacetrackSurfaceMapping::ExposureToCoverage(ContactsToSaturation * RacetrackSurfaceMapping::ExposurePerUnitSlip);
+		RacetrackSurfaceMapping::ExposureToCoverage(RubberContactsToSaturation * Rubber.Intensity);
+	const float ThinnestLockupCoverage = RacetrackSurfaceMapping::ExposureToCoverage(
+		Lockup.Intensity * RacetrackSurfaceMapping::ThinnestTexelShareOfASweptMark);
 
 	AddInfo(FString::Printf(
-		TEXT("One full-slip contact deposits %.5f exposure, which is %.4f coverage. %d contacts reach %.4f."),
-		Strokes[0].Intensity,
-		RacetrackSurfaceMapping::ExposureToCoverage(Strokes[0].Intensity),
-		ContactsToSaturation,
-		CoverageAtSaturation));
+		TEXT("One rubber contact at slip %.2f deposits %.5f exposure, which is %.4f coverage. %d of them reach %.4f. "
+			"One lockup deposits %.5f, and the thinnest texel of any swept mark, at %.2f of that, reads %.5f."),
+		RubberSlip,
+		Rubber.Intensity,
+		RacetrackSurfaceMapping::ExposureToCoverage(Rubber.Intensity),
+		RubberContactsToSaturation,
+		CoverageAtSaturation,
+		Lockup.Intensity,
+		RacetrackSurfaceMapping::ThinnestTexelShareOfASweptMark,
+		ThinnestLockupCoverage));
 
 	TestTrue(
-		TEXT("One contact leaves a faint mark rather than a saturated one, so buildup takes a session"),
-		RacetrackSurfaceMapping::ExposureToCoverage(Strokes[0].Intensity) < 0.01f);
+		TEXT("One rubber contact leaves a faint mark rather than a saturated one, so buildup takes a session"),
+		RacetrackSurfaceMapping::ExposureToCoverage(Rubber.Intensity) < 0.01f);
 
 	TestTrue(
-		TEXT("Roughly five hundred full-slip contacts approach the ceiling, as the precision floor derived"),
+		TEXT("About a thousand rubber contacts at the demo's cornering slip approach the ceiling"),
 		CoverageAtSaturation > 0.9f);
+
+	TestTrue(
+		TEXT("One lockup lays a full mark: even the thinnest texel of a swept mark reads the lockup's target coverage"),
+		ThinnestLockupCoverage >= RacetrackSurfaceMapping::LockupTargetCoverage - 1.0e-6f);
 
 	return true;
 }

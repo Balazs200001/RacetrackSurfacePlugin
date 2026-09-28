@@ -23,6 +23,15 @@ namespace RacetrackSurfaceMapping
 		return FMath::Clamp(SlipAmount, 0.0f, 1.0f) >= 1.0f;
 	}
 
+	static constexpr float LockupTargetCoverage = 0.95f;
+
+	static constexpr float ThinnestTexelShareOfASweptMark = 0.5f;
+
+	inline float LockupExposure()
+	{
+		return -FMath::Loge(1.0f - LockupTargetCoverage) / SaturationConstant / ThinnestTexelShareOfASweptMark;
+	}
+
 	static constexpr double MaximumLateralExtrapolationSeconds = 1.0 / 30.0;
 
 	static constexpr float MarbleSweepRetention = 0.5f;

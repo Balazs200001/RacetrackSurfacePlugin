@@ -29,6 +29,8 @@ namespace
 
 	constexpr float PaintedDepositionScale = 100.0f;
 
+	constexpr float PaintedSlip = 0.5f;
+
 	constexpr double AccumulatedBandWidth = 300.0;
 
 	constexpr double WheelSpeedCentimetresPerSecond = 5500.0;
@@ -158,7 +160,7 @@ namespace
 		FSurfaceTrackContact Contact;
 		Contact.Coordinate = LatencyCoordinateAt(PaintedTo, 0.0);
 		Contact.CentimetresPerSecondAlongCentreline = LatencyLapCentimetres * (PaintedTo - PaintedFrom);
-		Contact.SlipAmount = 1.0f;
+		Contact.SlipAmount = PaintedSlip;
 		Contact.ContactWidth = static_cast<float>(AccumulatedBandWidth);
 
 		Subsystem.RegisterSurfaceContactInTrackSpace(Contact);
@@ -243,8 +245,8 @@ namespace
 				continue;
 			}
 
-			Pair.SubmittedCoverage = Submitted.SkidMark;
-			Pair.OccupiedCoverage = Occupied.SkidMark;
+			Pair.SubmittedCoverage = Submitted.RubberBuildup;
+			Pair.OccupiedCoverage = Occupied.RubberBuildup;
 		}
 
 		return bAllResolved;
@@ -484,7 +486,7 @@ bool FSurfaceQueryLatencyCostsLessThanTheFieldVariesAlongTrack::RunTest(const FS
 	PaintTheAccumulatedLine(*Subsystem);
 
 	AddInfo(FString::Printf(
-		TEXT("A swept skid from lap fraction %.2f to %.2f, %.0f cm wide, at %.0fx the derived deposition. "
+		TEXT("A swept rubber line from lap fraction %.2f to %.2f, %.0f cm wide, at %.0fx the derived deposition. "
 			"That is the shape a deposited line has: swept along the track and broad across it, because "
 			"it is laid by tyres moving, not stamped. On a %.0f cm track its edges sit at alpha %.3f, and "
 			"the lateral pairs are swept from -0.5 to 0.5 so some of them straddle one"),
