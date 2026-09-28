@@ -32,6 +32,10 @@ namespace RacetrackSurfaceMapping
 		return -FMath::Loge(1.0f - LockupTargetCoverage) / SaturationConstant / ThinnestTexelShareOfASweptMark;
 	}
 
+	static constexpr double CurvatureSampleSpacing = 150.0;
+
+	static constexpr double MinimumMarbleCurvature = 1.0e-5;
+
 	static constexpr double MaximumLateralExtrapolationSeconds = 1.0 / 30.0;
 
 	static constexpr float MarbleSweepRetention = 0.5f;

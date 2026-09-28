@@ -189,6 +189,7 @@ void USurfaceAccumulationSubsystem::Deinitialize()
 	PendingContacts.Empty();
 	StrokesResolvedThisFrame.Empty();
 	Centreline.Reset();
+	SignedCurvatureProfile.Empty();
 
 	QuerySlots.Empty();
 	ResolvedQuerySlots.Empty();
@@ -317,6 +318,7 @@ void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 	Centreline = NewCentreline;
 	Ribbon = NewRibbon;
 
+	BuildSignedCurvatureProfile();
 	InvalidateQueryCache();
 
 	UE_LOG(LogRacetrackSurface, Log,
@@ -351,6 +353,80 @@ void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 	}
 
 	PublishRibbonToMaterials();
+}
+
+void USurfaceAccumulationSubsystem::BuildSignedCurvatureProfile()
+{
+	SignedCurvatureProfile.Reset();
+
+	const USplineComponent* Spline = Centreline.Get();
+	const double Length = Ribbon.TrackLength;
+
+	if (Spline == nullptr || Length <= UE_DOUBLE_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const int32 SampleCount = FMath::Max(
+		FMath::RoundToInt32(Length / RacetrackSurfaceMapping::CurvatureSampleSpacing),
+		1);
+
+	const double Spacing = Length / SampleCount;
+
+	SignedCurvatureProfile.Reserve(SampleCount);
+
+	double Tightest = 0.0;
+
+	for (int32 Sample = 0; Sample < SampleCount; ++Sample)
+	{
+		const double Distance = Spacing * Sample;
+
+		const double BehindDistance = Ribbon.bClosedLoop ? Distance - Spacing : FMath::Max(Distance - Spacing, 0.0);
+		const double AheadDistance = Ribbon.bClosedLoop ? Distance + Spacing : FMath::Min(Distance + Spacing, Length);
+
+		const FVector Behind = Spline->GetDirectionAtDistanceAlongSpline(
+			static_cast<float>(Ribbon.WrapDistance(BehindDistance)), ESplineCoordinateSpace::World);
+
+		const FVector Ahead = Spline->GetDirectionAtDistanceAlongSpline(
+			static_cast<float>(Ribbon.WrapDistance(AheadDistance)), ESplineCoordinateSpace::World);
+
+		const FVector Right = Spline->GetRightVectorAtDistanceAlongSpline(
+			static_cast<float>(Distance), ESplineCoordinateSpace::World);
+
+		const double SignedCurvature =
+			FVector::DotProduct(Ahead - Behind, Right) / FMath::Max(AheadDistance - BehindDistance, UE_DOUBLE_SMALL_NUMBER);
+
+		SignedCurvatureProfile.Add(SignedCurvature);
+		Tightest = FMath::Max(Tightest, FMath::Abs(SignedCurvature));
+	}
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Signed curvature profile: %d samples every %.1f cm, tightest %.3e per cm, a %.1f m radius"),
+		SampleCount,
+		Spacing,
+		Tightest,
+		Tightest > UE_DOUBLE_SMALL_NUMBER ? 0.01 / Tightest : 0.0);
+}
+
+double USurfaceAccumulationSubsystem::GetSignedCurvatureAtDistance(double DistanceAlongCentreline) const
+{
+	const int32 SampleCount = SignedCurvatureProfile.Num();
+
+	if (SampleCount == 0)
+	{
+		return 0.0;
+	}
+
+	const double Position =
+		Ribbon.NormalisedAlongTrack(Ribbon.WrapDistance(DistanceAlongCentreline)) * SampleCount;
+
+	const int32 Index = FMath::Clamp(FMath::FloorToInt32(Position), 0, SampleCount - 1);
+
+	const int32 NextIndex = Ribbon.bClosedLoop
+		? (Index + 1) % SampleCount
+		: FMath::Min(Index + 1, SampleCount - 1);
+
+	return FMath::Lerp(SignedCurvatureProfile[Index], SignedCurvatureProfile[NextIndex], Position - Index);
 }
 
 bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact& Contact)

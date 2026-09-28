@@ -67,6 +67,8 @@ public:
 		return Centreline.Get();
 	}
 
+	double GetSignedCurvatureAtDistance(double DistanceAlongCentreline) const;
+
 	bool RegisterSurfaceContact(const FSurfaceContact& Contact);
 
 	bool RegisterSurfaceContact(
@@ -201,6 +203,8 @@ private:
 
 	void PublishRibbonToMaterials();
 
+	void BuildSignedCurvatureProfile();
+
 	void AppendStroke(
 		const FSurfaceTrackContact& Contact,
 		double FromDistance,
@@ -212,6 +216,8 @@ private:
 	FSurfaceTrackRibbon Ribbon;
 
 	TWeakObjectPtr<const USplineComponent> Centreline;
+
+	TArray<double> SignedCurvatureProfile;
 
 	UPROPERTY(Transient)
 	TObjectPtr<USurfaceAccumulationBuffer> Buffer;
