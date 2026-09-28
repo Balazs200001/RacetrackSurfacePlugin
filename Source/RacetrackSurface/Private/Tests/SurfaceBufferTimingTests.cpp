@@ -13,6 +13,7 @@
 #include "SurfaceAccumulationBuffer.h"
 #include "SurfaceAccumulationMapping.h"
 #include "SurfaceAccumulationSubsystem.h"
+#include "SurfaceDecayPass.h"
 #include "Tests/RacetrackSurfaceTestHelpers.h"
 #include "Tests/SurfaceGpuTiming.h"
 
@@ -350,33 +351,47 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	TStrongObjectPtr<UTextureRenderTarget2D> ShippedInC10(UKismetRenderingLibrary::CreateRenderTarget2D(
-		World,
-		Buffer->GetAllocatedWidth(),
-		Buffer->GetAllocatedHeight(),
-		RTF_RGBA16f,
-		FLinearColor::Black,
-		false,
-		false));
+	const auto MakeHalfFloatTarget = [&](bool bSupportUAVs)
+	{
+		return TStrongObjectPtr<UTextureRenderTarget2D>(UKismetRenderingLibrary::CreateRenderTarget2D(
+			World,
+			Buffer->GetAllocatedWidth(),
+			Buffer->GetAllocatedHeight(),
+			RTF_RGBA16f,
+			FLinearColor::Black,
+			false,
+			bSupportUAVs));
+	};
 
+	TStrongObjectPtr<UTextureRenderTarget2D> ShippedInC10 = MakeHalfFloatTarget(false);
+	TStrongObjectPtr<UTextureRenderTarget2D> HalfFloatWithAUav = MakeHalfFloatTarget(true);
 	TStrongObjectPtr<UTexture2D> Noise(RacetrackSurfaceDecayTiming::MakeIncompressibleNoise());
 
-	if (!ShippedInC10.IsValid() || !Noise.IsValid())
+	if (!ShippedInC10.IsValid() || !HalfFloatWithAUav.IsValid() || !Noise.IsValid())
 	{
-		AddError(TEXT("Failed to allocate the C10 comparison target or the noise texture."));
+		AddError(TEXT("Failed to allocate the RGBA16f comparison targets or the noise texture."));
 		return false;
 	}
+
+	FTextureRenderTargetResource* HalfFloatResource = HalfFloatWithAUav->GameThread_GetRenderTargetResource();
 
 	const float DecayStep = 1.0f / RacetrackSurfaceMapping::DecayStepsPerHalfLife;
 	const float Retention = RacetrackSurfaceMapping::DecayRetentionForProgress(DecayStep);
 
 	TArray<RacetrackSurfaceDecayTiming::FTimedPass> Passes;
-	Passes.Add({ TEXT("coupled compute pass, UAV target"), [&]() { Buffer->ApplyDecay(World, DecayStep); } });
-	Passes.Add({ TEXT("C10 quad, plain target as shipped"), [&]()
+	Passes.Add({ TEXT("coupled compute pass, RGBA32f production target"), [&]()
+	{
+		Buffer->ApplyDecay(World, DecayStep);
+	} });
+	Passes.Add({ TEXT("coupled compute pass, RGBA16f target with a UAV, same shader"), [&]()
+	{
+		RacetrackSurfaceDecayPass::Enqueue(HalfFloatResource, DecayStep, RacetrackSurfaceMapping::SaturationConstant);
+	} });
+	Passes.Add({ TEXT("C10 quad, RGBA16f plain target as shipped, E6's reference"), [&]()
 	{
 		RacetrackSurfaceTest::DrawUniformDecayQuadAsShippedInC10(World, ShippedInC10.Get(), Retention);
 	} });
-	Passes.Add({ TEXT("C10 quad, UAV target"), [&]()
+	Passes.Add({ TEXT("C10 quad, RGBA32f production target"), [&]()
 	{
 		RacetrackSurfaceTest::DrawUniformDecayQuadAsShippedInC10(World, Buffer->GetTarget(), Retention);
 	} });
@@ -388,9 +403,12 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 
 	FlushRenderingCommands();
 
+	const int64 HalfFloatBytes = Ribbon.AtlasTexelCount()
+		* GPixelFormats[GetPixelFormatFromRenderTargetFormat(RTF_RGBA16f)].BlockBytes;
+
 	AddInfo(FString::Printf(
 		TEXT("Production atlas: %.0f cm of lap at %.0f cm wide, %.4f cm per texel, %d x %d texels in %d "
-			"rows of %d, allocating %d x %d for %lld bytes"),
+			"rows of %d, allocating %d x %d for %lld bytes, %.2f MiB, against %lld bytes, %.2f MiB, at RGBA16f"),
 		Ribbon.TrackLength,
 		Ribbon.TrackWidth,
 		Ribbon.CentimetresPerTexel,
@@ -400,7 +418,10 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 		Ribbon.TexelsPerRow(),
 		Buffer->GetAllocatedWidth(),
 		Buffer->GetAllocatedHeight(),
-		Buffer->GetAllocatedBytes()));
+		Buffer->GetAllocatedBytes(),
+		Buffer->GetAllocatedBytes() / (1024.0 * 1024.0),
+		HalfFloatBytes,
+		HalfFloatBytes / (1024.0 * 1024.0)));
 
 	const TCHAR* Contents[] = { TEXT("empty"), TEXT("filled with incompressible noise") };
 
@@ -412,6 +433,7 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 		{
 			RacetrackSurfaceDecayTiming::FillWith(World, Buffer->GetTarget(), Noise.Get());
 			RacetrackSurfaceDecayTiming::FillWith(World, ShippedInC10.Get(), Noise.Get());
+			RacetrackSurfaceDecayTiming::FillWith(World, HalfFloatWithAUav.Get(), Noise.Get());
 			FlushRenderingCommands();
 		}
 
@@ -436,6 +458,15 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 				RacetrackSurfaceDecayTiming::Minimum(Pass.Samples),
 				Pass.Samples.Num()));
 		}
+
+		AddInfo(FString::Printf(
+			TEXT("Buffer %s: the coupled pass costs %.3f times as much on RGBA32f as on RGBA16f, and %.3f times "
+				"E6's reference quad"),
+			Contents[ContentIndex],
+			RacetrackSurfaceDecayTiming::Median(Passes[0].Samples)
+				/ FMath::Max(RacetrackSurfaceDecayTiming::Median(Passes[1].Samples), UE_DOUBLE_SMALL_NUMBER),
+			RacetrackSurfaceDecayTiming::Median(Passes[0].Samples)
+				/ FMath::Max(RacetrackSurfaceDecayTiming::Median(Passes[2].Samples), UE_DOUBLE_SMALL_NUMBER)));
 
 		if (ContentIndex == 0)
 		{
@@ -469,13 +500,201 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 		Buffer->GetAllocatedBytes(),
 		static_cast<int64>(235929600));
 
+	TestEqual(
+		TEXT("The production buffer's bytes are its texels times the production format's texel size"),
+		Buffer->GetAllocatedBytes(),
+		Ribbon.AtlasTexelCount() * RacetrackSurfaceTest::ProductionBytesPerTexel());
+
 	TestTrue(
 		TEXT("Every pass resolved a timestamp, so the figures above are measurements rather than failed "
 			"readbacks reported as zero"),
 		CoupledEmptyMedian > 0.0 && CoupledFilledMedian > 0.0);
 
 	UKismetRenderingLibrary::ReleaseRenderTarget2D(ShippedInC10.Get());
+	UKismetRenderingLibrary::ReleaseRenderTarget2D(HalfFloatWithAUav.Get());
 	Buffer->Release();
+
+	return true;
+}
+
+namespace RacetrackSurfacePaintTiming
+{
+	constexpr int32 ContactsInAFrame = 80;
+
+	TArray<FSurfaceBrushStroke> MakeFrameAcrossTheRows(const FSurfaceTrackRibbon& Ribbon, bool bFanned)
+	{
+		const int32 Rows = Ribbon.RowCount();
+		const int32 ContactsPerRow = FMath::DivideAndRoundUp(ContactsInAFrame, Rows);
+		const double TravelCentimetres = RaceSpeedCentimetresPerSecond / TargetFrameHertz;
+		const double NormalisedTravel = Ribbon.NormalisedAlongTrack(TravelCentimetres);
+		const double HalfTravelInTexels = Ribbon.WorldDistanceToTexels(TravelCentimetres) * 0.5;
+		const float WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(20.0));
+
+		TArray<FSurfaceBrushStroke> Strokes;
+		Strokes.Reserve(ContactsInAFrame);
+
+		for (int32 Index = 0; Index < ContactsInAFrame; ++Index)
+		{
+			const int32 Row = FMath::Min(Index / ContactsPerRow, Rows - 1);
+			const int32 Slot = Index - Row * ContactsPerRow;
+			const double AlongTrack = (Row + 0.5) / Rows;
+			const double AcrossTrack = (Slot + 0.5) / ContactsPerRow;
+
+			FSurfaceBrushStroke Stroke;
+			Stroke.WidthInTexels = WidthInTexels;
+			Stroke.Intensity = 0.001f;
+			Stroke.RowIndex = Row;
+			Stroke.Channel = EAccumulationChannel::RubberBuildup;
+
+			if (bFanned)
+			{
+				const double Angle = UE_DOUBLE_PI * Index / ContactsInAFrame;
+				const FVector2D Centre = Ribbon.RibbonToAtlasInRow(Row, AlongTrack, AcrossTrack);
+				const FVector2D HalfInAtlas(
+					FMath::Cos(Angle) * HalfTravelInTexels / Ribbon.AtlasWidth(),
+					FMath::Sin(Angle) * HalfTravelInTexels / Ribbon.AtlasHeight());
+
+				Stroke.RegionStart = Centre - HalfInAtlas;
+				Stroke.RegionEnd = Centre + HalfInAtlas;
+			}
+			else
+			{
+				Stroke.RegionStart = Ribbon.RibbonToAtlasInRow(Row, AlongTrack - NormalisedTravel * 0.5, AcrossTrack);
+				Stroke.RegionEnd = Ribbon.RibbonToAtlasInRow(Row, AlongTrack + NormalisedTravel * 0.5, AcrossTrack);
+			}
+
+			Strokes.Add(Stroke);
+		}
+
+		return Strokes;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSurfacePaintCostByFormat,
+	"RacetrackSurface.Performance.PaintCostByFormat",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSurfacePaintCostByFormat::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddWarning(TEXT("Skipped: build cannot render, so no GPU timing is possible."));
+		return true;
+	}
+
+	if (!GSupportsTimestampRenderQueries)
+	{
+		AddWarning(TEXT("Skipped: RHI reports no timestamp render query support."));
+		return true;
+	}
+
+	UWorld* World = FindRenderableWorld();
+
+	if (World == nullptr)
+	{
+		AddError(TEXT("No editor, game or PIE world available to render through."));
+		return false;
+	}
+
+	const FSurfaceTrackRibbon Ribbon;
+
+	TStrongObjectPtr<USurfaceAccumulationBuffer> Production(NewObject<USurfaceAccumulationBuffer>());
+	TStrongObjectPtr<USurfaceAccumulationBuffer> HalfFloat(NewObject<USurfaceAccumulationBuffer>());
+	TStrongObjectPtr<UTexture2D> Noise(RacetrackSurfaceDecayTiming::MakeIncompressibleNoise());
+
+	if (!Production->Allocate(World, Ribbon) || !HalfFloat->Allocate(World, Ribbon, RTF_RGBA16f) || !Noise.IsValid())
+	{
+		AddError(TEXT("Failed to allocate the two production-atlas buffers or the noise texture."));
+		return false;
+	}
+
+	const TArray<FSurfaceBrushStroke> Uniform = RacetrackSurfacePaintTiming::MakeFrameAcrossTheRows(Ribbon, false);
+	const TArray<FSurfaceBrushStroke> Fanned = RacetrackSurfacePaintTiming::MakeFrameAcrossTheRows(Ribbon, true);
+	const float Retention = RacetrackSurfaceMapping::MarbleSweepRetention;
+
+	const auto FlushAFrame = [&World, Retention](USurfaceAccumulationBuffer& Buffer, const TArray<FSurfaceBrushStroke>& Strokes)
+	{
+		Buffer.SweepStrokes(World, Strokes, EAccumulationChannel::Marbles, Retention);
+		Buffer.PaintStrokes(World, Strokes);
+	};
+
+	TArray<RacetrackSurfaceDecayTiming::FTimedPass> Passes;
+	Passes.Add({ TEXT("80 contacts, uniform heading, RGBA32f"), [&]() { FlushAFrame(*Production, Uniform); } });
+	Passes.Add({ TEXT("80 contacts, uniform heading, RGBA16f"), [&]() { FlushAFrame(*HalfFloat, Uniform); } });
+	Passes.Add({ TEXT("80 contacts, 80 headings, RGBA32f"), [&]() { FlushAFrame(*Production, Fanned); } });
+	Passes.Add({ TEXT("80 contacts, 80 headings, RGBA16f"), [&]() { FlushAFrame(*HalfFloat, Fanned); } });
+
+	for (const RacetrackSurfaceDecayTiming::FTimedPass& Pass : Passes)
+	{
+		Pass.Work();
+	}
+
+	FlushRenderingCommands();
+
+	AddInfo(FString::Printf(
+		TEXT("One frame's canvas work as the flush issues it, the marble sweep then the paint, into the %d x %d "
+			"production atlas in %d rows: %lld bytes at RGBA32f against %lld at RGBA16f"),
+		Production->GetAllocatedWidth(),
+		Production->GetAllocatedHeight(),
+		Ribbon.RowCount(),
+		Production->GetAllocatedBytes(),
+		HalfFloat->GetAllocatedBytes()));
+
+	const TCHAR* Contents[] = { TEXT("empty"), TEXT("filled with incompressible noise") };
+
+	bool bEveryPassResolved = true;
+
+	for (int32 ContentIndex = 0; ContentIndex < static_cast<int32>(UE_ARRAY_COUNT(Contents)); ++ContentIndex)
+	{
+		if (ContentIndex == 1)
+		{
+			RacetrackSurfaceDecayTiming::FillWith(World, Production->GetTarget(), Noise.Get());
+			RacetrackSurfaceDecayTiming::FillWith(World, HalfFloat->GetTarget(), Noise.Get());
+			FlushRenderingCommands();
+		}
+
+		for (RacetrackSurfaceDecayTiming::FTimedPass& Pass : Passes)
+		{
+			Pass.Samples.Reset();
+		}
+
+		if (!RacetrackSurfaceDecayTiming::SampleInterleaved(Passes))
+		{
+			AddError(TEXT("Timestamp query readback failed despite reported support."));
+			return false;
+		}
+
+		for (const RacetrackSurfaceDecayTiming::FTimedPass& Pass : Passes)
+		{
+			const double PassMedian = RacetrackSurfaceDecayTiming::Median(Pass.Samples);
+			bEveryPassResolved &= PassMedian > 0.0;
+
+			AddInfo(FString::Printf(
+				TEXT("Sweep and paint, %s, buffer %s: median %.4f ms, min %.4f ms over %d interleaved samples"),
+				Pass.Name,
+				Contents[ContentIndex],
+				PassMedian,
+				RacetrackSurfaceDecayTiming::Minimum(Pass.Samples),
+				Pass.Samples.Num()));
+		}
+
+		AddInfo(FString::Printf(
+			TEXT("Buffer %s: RGBA32f costs %.3f times RGBA16f with uniform headings and %.3f times with 80 headings"),
+			Contents[ContentIndex],
+			RacetrackSurfaceDecayTiming::Median(Passes[0].Samples)
+				/ FMath::Max(RacetrackSurfaceDecayTiming::Median(Passes[1].Samples), UE_DOUBLE_SMALL_NUMBER),
+			RacetrackSurfaceDecayTiming::Median(Passes[2].Samples)
+				/ FMath::Max(RacetrackSurfaceDecayTiming::Median(Passes[3].Samples), UE_DOUBLE_SMALL_NUMBER)));
+	}
+
+	TestTrue(
+		TEXT("Every pass resolved a timestamp, so the figures above are measurements rather than failed readbacks "
+			"reported as zero"),
+		bEveryPassResolved);
+
+	Production->Release();
+	HalfFloat->Release();
 
 	return true;
 }
