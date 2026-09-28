@@ -73,8 +73,7 @@ public:
 		const FVector& WorldPosition,
 		const FVector& Velocity,
 		float SlipAmount,
-		float ContactWidth,
-		EAccumulationChannel Channel);
+		float ContactWidth);
 
 	bool RegisterSurfaceContactInTrackSpace(const FSurfaceTrackContact& Contact);
 
@@ -83,8 +82,7 @@ public:
 		double LateralOffsetAlpha,
 		double CentimetresPerSecondAlongCentreline,
 		float SlipAmount,
-		float ContactWidth,
-		EAccumulationChannel Channel);
+		float ContactWidth);
 
 	static float GetQueryContactPatchWidth();
 

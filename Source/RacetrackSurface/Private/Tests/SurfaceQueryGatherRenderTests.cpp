@@ -33,7 +33,7 @@ namespace
 		return Ribbon;
 	}
 
-	FSurfaceTrackContact MakeGatherContact(double Distance, EAccumulationChannel Channel)
+	FSurfaceTrackContact MakeGatherContact(double Distance)
 	{
 		FSurfaceTrackContact Contact;
 		Contact.Coordinate.DistanceAlongCentreline = Distance;
@@ -41,7 +41,6 @@ namespace
 		Contact.CentimetresPerSecondAlongCentreline = RaceSpeedCentimetresPerSecond;
 		Contact.SlipAmount = 1.0f;
 		Contact.ContactWidth = 20.0f;
-		Contact.Channel = Channel;
 		return Contact;
 	}
 
@@ -53,7 +52,11 @@ namespace
 		FSurfaceTrackRibbon Ribbon;
 	};
 
-	bool BuildFixture(FAutomationTestBase& Test, UWorld* World, EAccumulationChannel Channel, FGatherFixture& Out)
+	bool BuildFixture(
+		FAutomationTestBase& Test,
+		UWorld* World,
+		EAccumulationChannel PaintedChannel,
+		FGatherFixture& Out)
 	{
 		Out.Ribbon = MakeGatherRibbon();
 		Out.Circuit = MakeTestCircuit();
@@ -63,7 +66,7 @@ namespace
 		TArray<FSurfaceBrushStroke> Strokes;
 
 		Out.Subsystem->BuildStrokes(
-			MakeGatherContact(Out.Ribbon.TrackLength * GatherPaintedLapFraction, Channel),
+			MakeGatherContact(Out.Ribbon.TrackLength * GatherPaintedLapFraction),
 			GatherFrameSeconds,
 			Strokes);
 
@@ -71,6 +74,11 @@ namespace
 		{
 			Test.AddError(TEXT("The fixture painted no strokes, so there is nothing to gather."));
 			return false;
+		}
+
+		for (FSurfaceBrushStroke& Stroke : Strokes)
+		{
+			Stroke.Channel = PaintedChannel;
 		}
 
 		Out.Buffer = TStrongObjectPtr<USurfaceAccumulationBuffer>(NewObject<USurfaceAccumulationBuffer>());

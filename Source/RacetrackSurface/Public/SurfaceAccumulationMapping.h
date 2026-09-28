@@ -18,6 +18,11 @@ namespace RacetrackSurfaceMapping
 		return FMath::Clamp(SlipAmount, 0.0f, 1.0f) * ExposurePerUnitSlip * FMath::Max(DepositionScale, 0.0f);
 	}
 
+	inline bool IsLockup(float SlipAmount)
+	{
+		return FMath::Clamp(SlipAmount, 0.0f, 1.0f) >= 1.0f;
+	}
+
 	static constexpr double MaximumLateralExtrapolationSeconds = 1.0 / 30.0;
 
 	static constexpr float MarbleSweepRetention = 0.5f;

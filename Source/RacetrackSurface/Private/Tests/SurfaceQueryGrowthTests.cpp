@@ -233,7 +233,6 @@ bool FSurfaceQueryGrowingTheQueryCountAfterResolvingStaysSafe::RunTest(const FSt
 	Contact.CentimetresPerSecondAlongCentreline = RaceSpeedCentimetresPerSecond;
 	Contact.SlipAmount = 1.0f;
 	Contact.ContactWidth = 20.0f;
-	Contact.Channel = EAccumulationChannel::SkidMark;
 
 	Subsystem->RegisterSurfaceContactInTrackSpace(Contact);
 	Subsystem->Tick(GrowthTestFrameSeconds);

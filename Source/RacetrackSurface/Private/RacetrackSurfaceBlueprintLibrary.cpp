@@ -79,12 +79,11 @@ void URacetrackSurfaceBlueprintLibrary::RegisterSurfaceContact(
 	FVector WorldPosition,
 	FVector Velocity,
 	float SlipAmount,
-	float ContactWidth,
-	EAccumulationChannel Channel)
+	float ContactWidth)
 {
 	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
 	{
-		Subsystem->RegisterSurfaceContact(WorldPosition, Velocity, SlipAmount, ContactWidth, Channel);
+		Subsystem->RegisterSurfaceContact(WorldPosition, Velocity, SlipAmount, ContactWidth);
 	}
 }
 
@@ -94,8 +93,7 @@ void URacetrackSurfaceBlueprintLibrary::RegisterSurfaceContactInTrackSpace(
 	double LateralOffsetAlpha,
 	double CentimetresPerSecondAlongCentreline,
 	float SlipAmount,
-	float ContactWidth,
-	EAccumulationChannel Channel)
+	float ContactWidth)
 {
 	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
 	{
@@ -104,8 +102,7 @@ void URacetrackSurfaceBlueprintLibrary::RegisterSurfaceContactInTrackSpace(
 			LateralOffsetAlpha,
 			CentimetresPerSecondAlongCentreline,
 			SlipAmount,
-			ContactWidth,
-			Channel);
+			ContactWidth);
 	}
 }
 

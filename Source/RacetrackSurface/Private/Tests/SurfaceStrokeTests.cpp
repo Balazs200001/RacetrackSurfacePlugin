@@ -62,7 +62,6 @@ namespace
 		Contact.CentimetresPerSecondAlongCentreline = Speed;
 		Contact.SlipAmount = 0.5f;
 		Contact.ContactWidth = 20.0f;
-		Contact.Channel = EAccumulationChannel::SkidMark;
 		return Contact;
 	}
 }
@@ -392,12 +391,12 @@ bool FSurfaceStrokeRejectsContactsOffTheTrack::RunTest(const FString& Parameters
 	TestFalse(
 		TEXT("A track-space contact beyond the track edge is rejected"),
 		Harness.Subsystem->RegisterSurfaceContactInTrackSpace(
-			Harness.Length() * 0.5, 1.5, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+			Harness.Length() * 0.5, 1.5, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f));
 
 	TestFalse(
 		TEXT("A world-space contact far from the track is rejected"),
 		Harness.Subsystem->RegisterSurfaceContact(
-			FVector(500000.0, 500000.0, 0.0), FVector(1.0, 0.0, 0.0), 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+			FVector(500000.0, 500000.0, 0.0), FVector(1.0, 0.0, 0.0), 0.5f, 20.0f));
 
 	TestEqual(TEXT("Both rejections are counted"), Harness.Subsystem->GetContactsDiscardedOutsideRibbon(), 2);
 	TestEqual(TEXT("Nothing was queued"), Harness.Subsystem->GetPendingContactCount(), 0);
@@ -517,8 +516,7 @@ bool FSurfaceStrokeWorldAndTrackSpacePathsAgree::RunTest(const FString& Paramete
 			WorldPosition,
 			WorldDirection * RaceSpeedCentimetresPerSecond,
 			0.5f,
-			20.0f,
-			EAccumulationChannel::SkidMark));
+			20.0f));
 
 	if (Harness.Subsystem->GetPendingContactCount() != 1)
 	{
@@ -581,9 +579,9 @@ bool FSurfaceQueueDrainsOnFlush::RunTest(const FString& Parameters)
 	const FHarness Harness = MakeHarness();
 
 	Harness.Subsystem->RegisterSurfaceContactInTrackSpace(
-		0.0, 0.0, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::SkidMark);
+		0.0, 0.0, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f);
 	Harness.Subsystem->RegisterSurfaceContactInTrackSpace(
-		100.0, 0.5, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::RubberBuildup);
+		100.0, 0.5, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f);
 
 	TestEqual(TEXT("Both contacts are queued"), Harness.Subsystem->GetPendingContactCount(), 2);
 
@@ -607,7 +605,7 @@ bool FSurfaceContactsNeedACentreline::RunTest(const FString& Parameters)
 	TestFalse(
 		TEXT("A world-space contact without a centreline is rejected rather than queued"),
 		Subsystem->RegisterSurfaceContact(
-			FVector::ZeroVector, FVector(1.0, 0.0, 0.0), 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+			FVector::ZeroVector, FVector(1.0, 0.0, 0.0), 0.5f, 20.0f));
 
 	TestEqual(TEXT("The rejection is counted separately from an off-track one"),
 		Subsystem->GetContactsDiscardedWithoutCentreline(), 1);
@@ -616,7 +614,7 @@ bool FSurfaceContactsNeedACentreline::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("A track-space contact still works without a centreline, because it needs no conversion"),
 		Subsystem->RegisterSurfaceContactInTrackSpace(
-			100.0, 0.0, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f, EAccumulationChannel::SkidMark));
+			100.0, 0.0, RaceSpeedCentimetresPerSecond, 0.5f, 20.0f));
 
 	return true;
 }

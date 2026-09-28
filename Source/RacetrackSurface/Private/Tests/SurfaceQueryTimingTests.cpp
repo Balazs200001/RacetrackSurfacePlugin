@@ -315,7 +315,6 @@ namespace
 		Contact.CentimetresPerSecondAlongCentreline = RaceSpeedCentimetresPerSecond;
 		Contact.SlipAmount = 1.0f;
 		Contact.ContactWidth = 20.0f;
-		Contact.Channel = EAccumulationChannel::SkidMark;
 
 		TArray<FSurfaceBrushStroke> Strokes;
 		Out.Subsystem->BuildStrokes(Contact, 1.0f / 60.0f, Strokes);

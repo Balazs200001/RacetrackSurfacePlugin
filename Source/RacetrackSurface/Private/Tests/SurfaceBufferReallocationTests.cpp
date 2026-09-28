@@ -43,8 +43,7 @@ namespace
 			0.0,
 			RacetrackSurfaceTest::RaceSpeedCentimetresPerSecond,
 			1.0f,
-			20.0f,
-			EAccumulationChannel::SkidMark);
+			20.0f);
 
 		Subsystem.Tick(1.0f / 60.0f);
 	}

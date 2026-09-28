@@ -45,9 +45,6 @@ struct FSurfaceContact
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "0.0"))
 	float ContactWidth = 20.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
-	EAccumulationChannel Channel = EAccumulationChannel::SkidMark;
 };
 
 USTRUCT(BlueprintType)
@@ -69,9 +66,6 @@ struct FSurfaceTrackContact
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface", meta = (ClampMin = "0.0"))
 	float ContactWidth = 20.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Racetrack Surface")
-	EAccumulationChannel Channel = EAccumulationChannel::SkidMark;
 };
 
 USTRUCT(BlueprintType)

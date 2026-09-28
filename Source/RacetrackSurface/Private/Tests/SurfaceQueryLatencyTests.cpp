@@ -160,7 +160,6 @@ namespace
 		Contact.CentimetresPerSecondAlongCentreline = LatencyLapCentimetres * (PaintedTo - PaintedFrom);
 		Contact.SlipAmount = 1.0f;
 		Contact.ContactWidth = static_cast<float>(AccumulatedBandWidth);
-		Contact.Channel = EAccumulationChannel::SkidMark;
 
 		Subsystem.RegisterSurfaceContactInTrackSpace(Contact);
 		Subsystem.Tick(1.0f);

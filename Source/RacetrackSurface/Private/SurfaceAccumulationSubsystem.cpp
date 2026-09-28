@@ -117,6 +117,13 @@ namespace
 
 	constexpr int32 QuerySubmissionStampCount = 32;
 
+	EAccumulationChannel TyreChannelForSlip(float SlipAmount)
+	{
+		return RacetrackSurfaceMapping::IsLockup(SlipAmount)
+			? EAccumulationChannel::SkidMark
+			: EAccumulationChannel::RubberBuildup;
+	}
+
 	TAutoConsoleVariable<float> CVarDecayStepsPerHalfLife(
 		TEXT("r.RacetrackSurface.DecayStepsPerHalfLife"),
 		RacetrackSurfaceMapping::DecayStepsPerHalfLife,
@@ -397,7 +404,7 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact
 
 	if (Status != ETrackSpaceStatus::Valid)
 	{
-		RecordContactDiscardedOutsideRibbon(Contact.Channel);
+		RecordContactDiscardedOutsideRibbon(TyreChannelForSlip(Contact.SlipAmount));
 		return false;
 	}
 
@@ -411,7 +418,6 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact
 
 	TrackContact.SlipAmount = Contact.SlipAmount;
 	TrackContact.ContactWidth = Contact.ContactWidth;
-	TrackContact.Channel = Contact.Channel;
 
 	PendingContacts.Add(TrackContact);
 
@@ -422,15 +428,13 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(
 	const FVector& WorldPosition,
 	const FVector& Velocity,
 	float SlipAmount,
-	float ContactWidth,
-	EAccumulationChannel Channel)
+	float ContactWidth)
 {
 	FSurfaceContact Contact;
 	Contact.WorldPosition = WorldPosition;
 	Contact.Velocity = Velocity;
 	Contact.SlipAmount = SlipAmount;
 	Contact.ContactWidth = ContactWidth;
-	Contact.Channel = Channel;
 
 	return RegisterSurfaceContact(Contact);
 }
@@ -439,7 +443,7 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(const FSu
 {
 	if (!Ribbon.ContainsLateralOffset(Contact.Coordinate.LateralOffsetAlpha))
 	{
-		RecordContactDiscardedOutsideRibbon(Contact.Channel);
+		RecordContactDiscardedOutsideRibbon(TyreChannelForSlip(Contact.SlipAmount));
 		return false;
 	}
 
@@ -453,8 +457,7 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(
 	double LateralOffsetAlpha,
 	double CentimetresPerSecondAlongCentreline,
 	float SlipAmount,
-	float ContactWidth,
-	EAccumulationChannel Channel)
+	float ContactWidth)
 {
 	FSurfaceTrackContact Contact;
 	Contact.Coordinate.DistanceAlongCentreline = DistanceAlongCentreline;
@@ -462,7 +465,6 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(
 	Contact.CentimetresPerSecondAlongCentreline = CentimetresPerSecondAlongCentreline;
 	Contact.SlipAmount = SlipAmount;
 	Contact.ContactWidth = ContactWidth;
-	Contact.Channel = Channel;
 
 	return RegisterSurfaceContactInTrackSpace(Contact);
 }
@@ -873,7 +875,7 @@ void USurfaceAccumulationSubsystem::AppendStroke(
 	Stroke.WidthInTexels = static_cast<float>(Ribbon.WorldDistanceToTexels(Contact.ContactWidth));
 	Stroke.Intensity = RacetrackSurfaceMapping::SlipToExposure(Contact.SlipAmount, GetDepositionScale());
 	Stroke.RowIndex = RowIndex;
-	Stroke.Channel = Contact.Channel;
+	Stroke.Channel = TyreChannelForSlip(Contact.SlipAmount);
 
 	OutStrokes.Add(Stroke);
 }

@@ -23,8 +23,7 @@ public:
 		FVector WorldPosition,
 		FVector Velocity,
 		float SlipAmount,
-		float ContactWidth = 20.0f,
-		EAccumulationChannel Channel = EAccumulationChannel::SkidMark);
+		float ContactWidth = 20.0f);
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject", AdvancedDisplay = "ContactWidth"))
@@ -34,8 +33,7 @@ public:
 		double LateralOffsetAlpha,
 		double CentimetresPerSecondAlongCentreline,
 		float SlipAmount,
-		float ContactWidth = 20.0f,
-		EAccumulationChannel Channel = EAccumulationChannel::SkidMark);
+		float ContactWidth = 20.0f);
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
