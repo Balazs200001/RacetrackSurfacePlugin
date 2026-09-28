@@ -309,38 +309,6 @@ void USurfaceAccumulationSubsystem::ApplyDecayWhenAStepHasElapsed(float DeltaSec
 	DecayProgressInHalfLives = 0.0f;
 }
 
-int32 USurfaceAccumulationSubsystem::GetContactsDiscardedOutsideRibbon() const
-{
-	int32 Total = 0;
-
-	for (const int32 Discarded : ContactsDiscardedOutsideRibbon)
-	{
-		Total += Discarded;
-	}
-
-	return Total;
-}
-
-int32 USurfaceAccumulationSubsystem::GetContactsDiscardedOutsideRibbonInChannel(
-	EAccumulationChannel Channel) const
-{
-	const int32 Index = static_cast<int32>(Channel);
-
-	return Index >= 0 && Index < AccumulationChannelCount
-		? ContactsDiscardedOutsideRibbon[Index]
-		: 0;
-}
-
-void USurfaceAccumulationSubsystem::RecordContactDiscardedOutsideRibbon(EAccumulationChannel Channel)
-{
-	const int32 Index = static_cast<int32>(Channel);
-
-	if (Index >= 0 && Index < AccumulationChannelCount)
-	{
-		++ContactsDiscardedOutsideRibbon[Index];
-	}
-}
-
 void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 	const USplineComponent* NewCentreline,
 	const FSurfaceTrackRibbon& NewRibbon)
@@ -404,7 +372,7 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact
 
 	if (Status != ETrackSpaceStatus::Valid)
 	{
-		RecordContactDiscardedOutsideRibbon(TyreChannelForSlip(Contact.SlipAmount));
+		++ContactsDiscardedOutsideRibbon;
 		return false;
 	}
 
@@ -443,7 +411,7 @@ bool USurfaceAccumulationSubsystem::RegisterSurfaceContactInTrackSpace(const FSu
 {
 	if (!Ribbon.ContainsLateralOffset(Contact.Coordinate.LateralOffsetAlpha))
 	{
-		RecordContactDiscardedOutsideRibbon(TyreChannelForSlip(Contact.SlipAmount));
+		++ContactsDiscardedOutsideRibbon;
 		return false;
 	}
 
@@ -830,7 +798,7 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 {
 	PendingContacts.Reset();
 	StrokesResolvedThisFrame.Reset();
-	FMemory::Memzero(ContactsDiscardedOutsideRibbon);
+	ContactsDiscardedOutsideRibbon = 0;
 	ContactsDiscardedWithoutCentreline = 0;
 	DecayProgressInHalfLives = 0.0f;
 	DecayPassCount = 0;

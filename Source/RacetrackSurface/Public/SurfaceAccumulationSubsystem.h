@@ -127,9 +127,10 @@ public:
 		return PendingContacts;
 	}
 
-	int32 GetContactsDiscardedOutsideRibbon() const;
-
-	int32 GetContactsDiscardedOutsideRibbonInChannel(EAccumulationChannel Channel) const;
+	int32 GetContactsDiscardedOutsideRibbon() const
+	{
+		return ContactsDiscardedOutsideRibbon;
+	}
 
 	int32 GetContactsDiscardedWithoutCentreline() const
 	{
@@ -200,8 +201,6 @@ private:
 
 	void PublishRibbonToMaterials();
 
-	void RecordContactDiscardedOutsideRibbon(EAccumulationChannel Channel);
-
 	void AppendStroke(
 		const FSurfaceTrackContact& Contact,
 		double FromDistance,
@@ -221,7 +220,7 @@ private:
 
 	TArray<FSurfaceBrushStroke> StrokesResolvedThisFrame;
 
-	int32 ContactsDiscardedOutsideRibbon[AccumulationChannelCount] = {};
+	int32 ContactsDiscardedOutsideRibbon = 0;
 
 	int32 ContactsDiscardedWithoutCentreline = 0;
 
