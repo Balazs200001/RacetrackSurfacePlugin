@@ -130,6 +130,39 @@ namespace
 		FCanvas* Canvas;
 		uint32 ModesToRestore;
 	};
+
+	class FCanvasRowClip
+	{
+	public:
+		FCanvasRowClip(UCanvas* InCanvas, const USurfaceAccumulationBuffer& InBuffer)
+			: Canvas(InCanvas != nullptr ? InCanvas->Canvas : nullptr)
+			, Buffer(InBuffer)
+			, bClipToRows(InBuffer.GetAllocatedRowCount() > 1 && Canvas != nullptr)
+		{
+		}
+
+		void Enter(int32 RowIndex)
+		{
+			if (!bClipToRows || RowIndex == ClippedRow)
+			{
+				return;
+			}
+
+			if (ClippedRow != INDEX_NONE)
+			{
+				Canvas->Flush_GameThread(true);
+			}
+
+			ClippedRow = RowIndex;
+			Canvas->SetRenderTargetScissorRect(Buffer.GetRowBounds(ClippedRow));
+		}
+
+	private:
+		FCanvas* Canvas;
+		const USurfaceAccumulationBuffer& Buffer;
+		bool bClipToRows;
+		int32 ClippedRow = INDEX_NONE;
+	};
 }
 
 namespace RacetrackSurfaceBrush
@@ -375,9 +408,7 @@ void USurfaceAccumulationBuffer::SweepStrokes(
 	if (Canvas != nullptr)
 	{
 		const FScopedCanvasFlushDeferral FlushDeferral(Canvas);
-
-		const bool bClipToRows = AllocatedRowCount > 1 && Canvas->Canvas != nullptr;
-		int32 ClippedRow = INDEX_NONE;
+		FCanvasRowClip RowClip(Canvas, *this);
 
 		for (const FSurfaceBrushStroke& Stroke : Strokes)
 		{
@@ -386,16 +417,7 @@ void USurfaceAccumulationBuffer::SweepStrokes(
 				continue;
 			}
 
-			if (bClipToRows && Stroke.RowIndex != ClippedRow)
-			{
-				if (ClippedRow != INDEX_NONE)
-				{
-					Canvas->Canvas->Flush_GameThread(true);
-				}
-
-				ClippedRow = Stroke.RowIndex;
-				Canvas->Canvas->SetRenderTargetScissorRect(GetRowBounds(ClippedRow));
-			}
+			RowClip.Enter(Stroke.RowIndex);
 
 			const FVector2D Start = Stroke.RegionStart * CanvasSize;
 			const FVector2D End = Stroke.RegionEnd * CanvasSize;
@@ -653,21 +675,11 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 		const bool bSaturating = PaintMode == ESurfacePaintMode::Saturating;
 		const EBlendMode BlendMode = bSaturating ? BLEND_Translucent : BLEND_Additive;
 
-		const bool bClipToRows = AllocatedRowCount > 1 && Canvas->Canvas != nullptr;
-		int32 ClippedRow = INDEX_NONE;
+		FCanvasRowClip RowClip(Canvas, *this);
 
 		for (const FSurfaceBrushStroke& Stroke : Strokes)
 		{
-			if (bClipToRows && Stroke.RowIndex != ClippedRow)
-			{
-				if (ClippedRow != INDEX_NONE)
-				{
-					Canvas->Canvas->Flush_GameThread(true);
-				}
-
-				ClippedRow = Stroke.RowIndex;
-				Canvas->Canvas->SetRenderTargetScissorRect(GetRowBounds(ClippedRow));
-			}
+			RowClip.Enter(Stroke.RowIndex);
 
 			const FVector2D Start = Stroke.RegionStart * CanvasSize;
 			const FVector2D End = Stroke.RegionEnd * CanvasSize;
