@@ -348,7 +348,7 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> CanvasBuffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (CanvasBuffer->Allocate(World, MakeSquareTestRibbon(Resolution)))
+	if (CanvasBuffer->Allocate(World, MakeSquareTestRibbon(Resolution), RTF_RGBA16f))
 	{
 		const float Retention = RacetrackSurfaceMapping::DecayRetentionForProgress(StepHalfLives);
 
@@ -369,8 +369,8 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 			MeasureDriftOverHalfLife(Before, ReadWholeTarget(World, CanvasBuffer->GetTarget()));
 
 		AddInfo(FString::Printf(
-			TEXT("%d C10 quads of one step each on the same fixture, for comparison: they kept %.4f %% more than "
-				"half on average, worst %.4f %% either way, over %d values"),
+			TEXT("%d C10 quads of one step each on the same fixture in RGBA16f, as C10 shipped them, for comparison: "
+				"they kept %.4f %% more than half on average, worst %.4f %% either way, over %d values"),
 			StepsInAHalfLife,
 			CanvasDrift.MeanRelativeDrift * 100.0,
 			CanvasDrift.WorstRelativeDrift * 100.0,
