@@ -932,6 +932,20 @@ void USurfaceAccumulationSubsystem::BuildStrokes(
 	float DeltaSeconds,
 	TArray<FSurfaceBrushStroke>& OutStrokes) const
 {
+	ForEachStrokePiece(
+		Contact,
+		DeltaSeconds,
+		[this, &Contact, &OutStrokes](double FromDistance, double FromAlpha, double ToDistance, double ToAlpha)
+		{
+			AppendStroke(Contact, FromDistance, FromAlpha, ToDistance, ToAlpha, OutStrokes);
+		});
+}
+
+void USurfaceAccumulationSubsystem::ForEachStrokePiece(
+	const FSurfaceTrackContact& Contact,
+	float DeltaSeconds,
+	TFunctionRef<void(double FromDistance, double FromAlpha, double ToDistance, double ToAlpha)> OnPiece) const
+{
 	const double Length = FMath::Max(Ribbon.TrackLength, UE_DOUBLE_SMALL_NUMBER);
 
 	const double EndDistance = Ribbon.WrapDistance(Contact.Coordinate.DistanceAlongCentreline);
@@ -991,13 +1005,11 @@ void USurfaceAccumulationSubsystem::BuildStrokes(
 
 		const double LapsBack = FMath::FloorToDouble((FromDistance + ToDistance) * 0.5 / Length);
 
-		AppendStroke(
-			Contact,
+		OnPiece(
 			FromDistance - LapsBack * Length,
 			StartAlpha + (EndAlpha - StartAlpha) * FromFraction,
 			ToDistance - LapsBack * Length,
-			StartAlpha + (EndAlpha - StartAlpha) * ToFraction,
-			OutStrokes);
+			StartAlpha + (EndAlpha - StartAlpha) * ToFraction);
 	}
 }
 

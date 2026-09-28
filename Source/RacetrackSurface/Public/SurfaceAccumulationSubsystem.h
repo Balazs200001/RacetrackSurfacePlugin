@@ -205,6 +205,11 @@ private:
 
 	void BuildSignedCurvatureProfile();
 
+	void ForEachStrokePiece(
+		const FSurfaceTrackContact& Contact,
+		float DeltaSeconds,
+		TFunctionRef<void(double FromDistance, double FromAlpha, double ToDistance, double ToAlpha)> OnPiece) const;
+
 	void AppendStroke(
 		const FSurfaceTrackContact& Contact,
 		double FromDistance,
