@@ -224,7 +224,7 @@ bool USurfaceAccumulationBuffer::Allocate(
 
 	Release();
 
-	const bool bDecaysInPlace = Format == RTF_RGBA16f && RHIIsTypedUAVLoadSupported(PF_FloatRGBA);
+	const bool bDecaysInPlace = Format == RTF_RGBA32f && RHIIsTypedUAVLoadSupported(PF_A32B32G32R32F);
 
 	Target = UKismetRenderingLibrary::CreateRenderTarget2D(
 		WorldContext,
@@ -254,7 +254,7 @@ bool USurfaceAccumulationBuffer::Allocate(
 		bDecaysInPlace
 			? TEXT("with a UAV so it decays in place")
 			: TEXT("without a UAV, so it decays uniformly on the canvas and skid is not paved over: in-place "
-				"decay rounds to half floats and needs RGBA16f with typed UAV loads"));
+				"decay stores full floats and needs RGBA32f with typed UAV loads"));
 
 	return true;
 }
@@ -445,7 +445,7 @@ bool USurfaceAccumulationBuffer::ApplyDecay(UObject* WorldContext, float HalfLiv
 
 			UE_LOG(LogRacetrackSurface, Warning,
 				TEXT("The %s accumulation target has no UAV, so it decays uniformly on the canvas and skid is not "
-					"paved over by rubber. In-place decay rounds to half floats, so it needs RGBA16f and an RHI "
+					"paved over by rubber. In-place decay stores full floats, so it needs RGBA32f and an RHI "
 					"with typed UAV loads for it"),
 				GPixelFormats[Target->GetFormat()].Name);
 		}

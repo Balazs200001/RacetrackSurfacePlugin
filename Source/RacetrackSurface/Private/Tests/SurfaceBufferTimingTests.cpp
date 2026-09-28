@@ -227,7 +227,7 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 	TStrongObjectPtr<USurfaceAccumulationBuffer> DecayBuffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA8) || !DecayBuffer->Allocate(World, Ribbon, RTF_RGBA16f))
+	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA8) || !DecayBuffer->Allocate(World, Ribbon))
 	{
 		AddError(TEXT("Failed to allocate the accumulation buffers."));
 		return false;
@@ -291,8 +291,8 @@ bool FSurfacePaintAndDecayTiming::RunTest(const FString& Parameters)
 		EightyFannedMedian,
 		EightyFannedMinimum));
 	AddInfo(FString::Printf(
-		TEXT("Full buffer decay, coupled compute pass on an RGBA16f buffer of the same size: median %.4f ms, "
-			"min %.4f ms"),
+		TEXT("Full buffer decay, coupled compute pass on a production-format buffer of the same size: median "
+			"%.4f ms, min %.4f ms"),
 		DecayMedian,
 		DecayMinimum));
 
@@ -464,9 +464,10 @@ bool FSurfaceDecayAtTheProductionAtlas::RunTest(const FString& Parameters)
 		20.0 * PassesPerSecondAtOne * CoupledFilledMedian));
 
 	TestEqual(
-		TEXT("The default ribbon is the demo's own configuration, so this measures the buffer the demo runs"),
+		TEXT("The default ribbon is the demo's own configuration, so this measures the buffer the demo runs: "
+			"235929600 bytes, 225 MiB, at RGBA32f"),
 		Buffer->GetAllocatedBytes(),
-		static_cast<int64>(117964800));
+		static_cast<int64>(235929600));
 
 	TestTrue(
 		TEXT("Every pass resolved a timestamp, so the figures above are measurements rather than failed "

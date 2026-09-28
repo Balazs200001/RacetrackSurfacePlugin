@@ -255,11 +255,11 @@ bool FTrackRibbonTexelExtentsFollowTrackDimensions::RunTest(const FString& Param
 	TestEqual(TEXT("The harness circuit is 384 texels across"), Harness.AcrossTrackTexels(), 384);
 	TestEqual(TEXT("The harness circuit is short enough to need one row"), Harness.RowCount(), 1);
 
-	const int64 HarnessBytes = Harness.AtlasTexelCount() * 8;
+	const int64 HarnessBytes = Harness.AtlasTexelCount() * RacetrackSurfaceTest::ProductionBytesPerTexel();
 
 	AddInfo(FString::Printf(
 		TEXT("Harness circuit %.0f cm by %.0f cm at %.4f cm/texel: %d x %d texels in %d row, allocating %d x %d, "
-			"%lld bytes (%.2f MiB) at RGBA16f"),
+			"%lld bytes (%.2f MiB) in the production format"),
 		Harness.TrackLength,
 		Harness.TrackWidth,
 		Harness.CentimetresPerTexel,
@@ -278,11 +278,11 @@ bool FTrackRibbonTexelExtentsFollowTrackDimensions::RunTest(const FString& Param
 	Spa.TrackLength = 700400.0;
 	Spa.TrackWidth = 1500.0;
 
-	const int64 SpaBytes = Spa.AtlasTexelCount() * 8;
+	const int64 SpaBytes = Spa.AtlasTexelCount() * RacetrackSurfaceTest::ProductionBytesPerTexel();
 
 	AddInfo(FString::Printf(
 		TEXT("Real Spa %.0f cm by %.0f cm at %.4f cm/texel: %d x %d texels in %d rows of %d, allocating %d x %d, "
-			"%lld bytes (%.1f MB) at RGBA16f"),
+			"%lld bytes (%.1f MB) in the production format"),
 		Spa.TrackLength,
 		Spa.TrackWidth,
 		Spa.CentimetresPerTexel,
@@ -336,7 +336,10 @@ bool FTrackRibbonFoldsIntoRowsBeyondTheUnfoldedLimit::RunTest(const FString& Par
 	TestEqual(TEXT("The demo lap divides exactly, so no row carries slack"), Ribbon.TexelsPerRow(), 14400);
 	TestEqual(TEXT("The demo lap allocates 14400 texels wide"), Ribbon.AtlasWidth(), 14400);
 	TestEqual(TEXT("The demo lap allocates 1024 texels tall"), Ribbon.AtlasHeight(), 1024);
-	TestEqual(TEXT("The demo lap allocates 117964800 bytes at RGBA16f"), Ribbon.AtlasTexelCount() * 8, 117964800ll);
+	TestEqual(
+		TEXT("The demo lap allocates 235929600 bytes, 225 MiB, in the RGBA32f production format"),
+		Ribbon.AtlasTexelCount() * RacetrackSurfaceTest::ProductionBytesPerTexel(),
+		235929600ll);
 
 	Ribbon.TrackLength = 700400.0;
 	TestFalse(TEXT("Real Spa does not fit in one row"), Ribbon.FitsUnfolded());

@@ -470,7 +470,7 @@ bool FSurfaceQueryNeverAllocatesABufferOfItsOwn::RunTest(const FString& Paramete
 
 	TestTrue(
 		TEXT("Eight frames of querying and resolving never allocate the accumulation buffer, which is "
-			"up to 118 MB on the demo ribbon. Only a contact may allocate it"),
+			"225 MiB on the demo ribbon. Only a contact may allocate it"),
 		Scenario->Subsystem->GetBuffer() == Before);
 
 	AddInfo(FString::Printf(

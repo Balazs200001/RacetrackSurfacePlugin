@@ -4,7 +4,6 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
 #include "Kismet/KismetRenderingLibrary.h"
-#include "Math/Float16.h"
 #include "RenderingThread.h"
 #include "SurfaceAccumulationBuffer.h"
 #include "SurfaceAccumulationMapping.h"
@@ -19,9 +18,11 @@ namespace RacetrackSurfaceClosedFormTest
 {
 	constexpr int32 Resolution = 256;
 
-	constexpr float HalfFloatRelativeTolerance = 1.0f / 1024.0f;
+	constexpr float FloatRelativeTolerance = 1.0e-5f;
 
-	constexpr float HalfFloatAbsoluteTolerance = 1.0e-7f;
+	constexpr float FloatAbsoluteTolerance = 1.0e-9f;
+
+	constexpr double HalfLifeDriftTolerance = 1.0e-4;
 
 	FSurfaceBrushStroke MakeStroke(
 		const FVector2D& Start,
@@ -88,64 +89,7 @@ namespace RacetrackSurfaceClosedFormTest
 	bool Agrees(float Measured, float Expected)
 	{
 		return FMath::Abs(Measured - Expected)
-			<= FMath::Max(FMath::Abs(Expected) * HalfFloatRelativeTolerance, HalfFloatAbsoluteTolerance);
-	}
-
-	struct FRoundingTally
-	{
-		int32 NearestEven = 0;
-		int32 Truncated = 0;
-		int32 Neither = 0;
-		int32 Indistinguishable = 0;
-
-		int32 Distinguishable() const
-		{
-			return NearestEven + Truncated + Neither;
-		}
-
-		FString Describe() const
-		{
-			return FString::Printf(
-				TEXT("of %d values where rounding to nearest and truncating give different half floats, %d "
-					"landed on the nearest, %d on the truncation and %d on neither; %d more could not tell "
-					"the two apart"),
-				Distinguishable(),
-				NearestEven,
-				Truncated,
-				Neither,
-				Indistinguishable);
-		}
-	};
-
-	void TallyRounding(float Measured, float Exact, FRoundingTally& Tally)
-	{
-		if (Exact <= HalfFloatAbsoluteTolerance)
-		{
-			return;
-		}
-
-		FFloat16 Nearest;
-		Nearest.Set(Exact);
-
-		FFloat16 Truncated;
-		Truncated.SetTruncate(Exact);
-
-		if (Nearest.Encoded == Truncated.Encoded)
-		{
-			++Tally.Indistinguishable;
-		}
-		else if (Measured == Nearest.GetFloat())
-		{
-			++Tally.NearestEven;
-		}
-		else if (Measured == Truncated.GetFloat())
-		{
-			++Tally.Truncated;
-		}
-		else
-		{
-			++Tally.Neither;
-		}
+			<= FMath::Max(FMath::Abs(Expected) * FloatRelativeTolerance, FloatAbsoluteTolerance);
 	}
 
 	struct FRepeatedPassDrift
@@ -192,7 +136,6 @@ namespace RacetrackSurfaceClosedFormTest
 		float LargestMultiplier = 1.0f;
 		float WorstRelativeError = 0.0f;
 		FString FirstDisagreement;
-		FRoundingTally Rounding;
 	};
 
 	FPassComparison CompareAgainstClosedForm(
@@ -219,10 +162,6 @@ namespace RacetrackSurfaceClosedFormTest
 
 			++Comparison.TexelsCompared;
 
-			TallyRounding(To.R, Expected.R, Comparison.Rounding);
-			TallyRounding(To.G, Expected.G, Comparison.Rounding);
-			TallyRounding(To.B, Expected.B, Comparison.Rounding);
-
 			if (From.R > 0.0f && From.G > 0.0f)
 			{
 				++Comparison.TexelsWithRubberAndSkid;
@@ -241,7 +180,7 @@ namespace RacetrackSurfaceClosedFormTest
 
 			for (const auto& Pair : Channels)
 			{
-				if (Pair[1] > HalfFloatAbsoluteTolerance)
+				if (Pair[1] > FloatAbsoluteTolerance)
 				{
 					Comparison.WorstRelativeError = FMath::Max(
 						Comparison.WorstRelativeError,
@@ -336,30 +275,19 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 		AddInfo(FString::Printf(
 			TEXT("One pass of %.6f half-lives: %d texels compared, %d carrying both rubber and skid, skid "
 				"decaying up to %.2f times the shared rate. %d disagree with the C++ closed form beyond "
-				"half-float tolerance; the worst relative error on any channel is %.3e"),
+				"%.0e relative; the worst relative error on any channel is %.3e"),
 			HalfLivesElapsed,
 			Comparison.TexelsCompared,
 			Comparison.TexelsWithRubberAndSkid,
 			Comparison.LargestMultiplier,
 			Comparison.Disagreements,
+			FloatRelativeTolerance,
 			Comparison.WorstRelativeError));
 
 		if (Comparison.Disagreements > 0)
 		{
 			AddInfo(FString::Printf(TEXT("First disagreement: %s"), *Comparison.FirstDisagreement));
 		}
-
-		AddInfo(FString::Printf(
-			TEXT("Rounding of the coupled pass at %.6f half-lives: %s"),
-			HalfLivesElapsed,
-			*Comparison.Rounding.Describe()));
-
-		TestTrue(
-			*FString::Printf(
-				TEXT("At %.6f half-lives the pass rounds each stored value to the nearest half float, so "
-					"repeated passes carry no systematic downward bias"),
-				HalfLivesElapsed),
-			Comparison.Rounding.Truncated * 100 <= Comparison.Rounding.Distinguishable());
 
 		TestTrue(
 			*FString::Printf(
@@ -377,7 +305,8 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 		TestEqual(
 			*FString::Printf(
 				TEXT("At %.6f half-lives every texel's rubber, skid, marbles and alpha match the C++ closed "
-					"form, so the shader and SkidRetentionForProgress cannot silently disagree"),
+					"form to float precision, so the shader and SkidRetentionForProgress cannot silently "
+					"disagree, and nothing in the pass rounds the stored value to a coarser format"),
 				HalfLivesElapsed),
 			Comparison.Disagreements,
 			0);
@@ -411,9 +340,11 @@ bool FSurfaceCoupledPassMatchesTheClosedFormAtEveryTexel::RunTest(const FString&
 		CoupledDrift.WorstRelativeDrift * 100.0));
 
 	TestTrue(
-		TEXT("A half-life of coupled passes leaves half of every rubber and marble value, within 1 % on average, "
-			"so the calibrated half-life is the one the buffer actually decays at"),
-		CoupledDrift.ValuesCompared > 1000 && FMath::Abs(CoupledDrift.MeanRelativeDrift) < 0.01);
+		*FString::Printf(
+			TEXT("A half-life of coupled passes leaves half of every rubber and marble value, within %.2f %% on "
+				"average, so the calibrated half-life is the one the buffer actually decays at"),
+			HalfLifeDriftTolerance * 100.0),
+		CoupledDrift.ValuesCompared > 1000 && FMath::Abs(CoupledDrift.MeanRelativeDrift) < HalfLifeDriftTolerance);
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> CanvasBuffer(NewObject<USurfaceAccumulationBuffer>());
 

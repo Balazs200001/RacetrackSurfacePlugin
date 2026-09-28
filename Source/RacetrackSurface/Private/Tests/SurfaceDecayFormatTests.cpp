@@ -38,18 +38,49 @@ bool FSurfaceBufferDecaysInPlaceInTheProductionFormat::RunTest(const FString& Pa
 
 	const EPixelFormat CandidateFormats[] = { PF_FloatRGBA, PF_A32B32G32R32F, PF_B8G8R8A8 };
 
+	const auto Supported = [](EPixelFormat Format, EPixelFormatCapabilities Capability)
+	{
+		return RHIPixelFormatHasCapabilities(Format, Capability) ? TEXT("yes") : TEXT("no");
+	};
+
+	AddInfo(TEXT("format | typed UAV loads | render target | blendable | sampled and filterable"));
+
 	for (const EPixelFormat Candidate : CandidateFormats)
 	{
 		AddInfo(FString::Printf(
-			TEXT("%s: typed UAV loads %s on this RHI"),
+			TEXT("%s | %s | %s | %s | %s"),
 			GPixelFormats[Candidate].Name,
-			RHIIsTypedUAVLoadSupported(Candidate) ? TEXT("supported") : TEXT("not supported")));
+			Supported(Candidate, EPixelFormatCapabilities::TypedUAVLoad),
+			Supported(Candidate, EPixelFormatCapabilities::RenderTarget),
+			Supported(Candidate, EPixelFormatCapabilities::TextureBlendable),
+			Supported(Candidate, EPixelFormatCapabilities::TextureFilterable)));
 	}
 
+	const EPixelFormat ProductionPixelFormat =
+		GetPixelFormatFromRenderTargetFormat(USurfaceAccumulationBuffer::ProductionFormat);
+
+	TestEqual(
+		TEXT("The production format is RGBA32f, because RGBA16f cannot hold the marble fan's increments"),
+		USurfaceAccumulationBuffer::ProductionFormat,
+		RTF_RGBA32f);
+
 	TestTrue(
-		TEXT("The RHI reports typed UAV loads for PF_FloatRGBA, which the coupled decay pass reads its texels "
-			"through, so an RHI without them fails here rather than silently never decaying"),
-		RHIIsTypedUAVLoadSupported(PF_FloatRGBA));
+		TEXT("The RHI reports typed UAV loads for the production format, which the coupled decay pass reads its "
+			"texels through, so an RHI without them fails here rather than silently never decaying in place"),
+		RHIIsTypedUAVLoadSupported(ProductionPixelFormat));
+
+	TestTrue(
+		TEXT("The RHI reports the production format as a render target it can blend into, which every canvas "
+			"write, additive and modulate, depends on"),
+		RHIPixelFormatHasCapabilities(
+			ProductionPixelFormat,
+			EPixelFormatCapabilities::RenderTarget | EPixelFormatCapabilities::TextureBlendable));
+
+	TestTrue(
+		TEXT("The RHI reports the production format as sampled with filtering, which the material's bilinear "
+			"across the track depends on. D3D12 sets this from the format's shader-sample support, so the "
+			"read-path agreement test is what shows the filtering itself"),
+		RHIPixelFormatHasCapabilities(ProductionPixelFormat, EPixelFormatCapabilities::TextureFilterable));
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
@@ -60,9 +91,9 @@ bool FSurfaceBufferDecaysInPlaceInTheProductionFormat::RunTest(const FString& Pa
 	}
 
 	TestEqual(
-		TEXT("The default allocation is the production RGBA16f format"),
+		TEXT("The default allocation is the production format"),
 		Buffer->GetAllocatedFormat(),
-		RTF_RGBA16f);
+		USurfaceAccumulationBuffer::ProductionFormat);
 
 	TestTrue(
 		TEXT("The default allocation carries a UAV, so it can decay in place"),
@@ -108,14 +139,15 @@ bool FSurfaceBufferWithoutAUavDecaysUniformlyOnTheCanvas::RunTest(const FString&
 
 	TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, MakeSquareTestRibbon(Resolution), RTF_RGBA32f))
+	if (!Buffer->Allocate(World, MakeSquareTestRibbon(Resolution), RTF_RGBA16f))
 	{
-		AddError(TEXT("Failed to allocate an RGBA32f accumulation buffer."));
+		AddError(TEXT("Failed to allocate an RGBA16f accumulation buffer."));
 		return false;
 	}
 
 	TestFalse(
-		TEXT("An RGBA32f buffer carries no UAV, because in-place decay rounds to half floats"),
+		TEXT("An RGBA16f buffer carries no UAV, because the in-place pass stores full floats and its UAV store "
+			"into a half float truncates"),
 		Buffer->CanDecayInPlace());
 
 	FSurfaceBrushStroke Rubber;
@@ -175,7 +207,7 @@ bool FSurfaceBufferWithoutAUavDecaysUniformlyOnTheCanvas::RunTest(const FString&
 	}
 
 	AddInfo(FString::Printf(
-		TEXT("Uniform canvas fallback on RGBA32f at %.2f half-lives: %d of %d texels with skid over rubber kept "
+		TEXT("Uniform canvas fallback on RGBA16f at %.2f half-lives: %d of %d texels with skid over rubber kept "
 			"skid at the shared retention %.6f, and the worst rubber texel was %.3e off it"),
 		HalfLivesElapsed,
 		SkidAtTheSharedRate,

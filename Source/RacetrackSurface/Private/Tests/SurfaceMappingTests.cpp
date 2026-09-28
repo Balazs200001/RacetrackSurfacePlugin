@@ -138,7 +138,8 @@ bool FSurfaceDecayRetentionIsIndependentOfFrameRate::RunTest(const FString& Para
 
 	TestTrue(
 		TEXT("Retention over a span does not depend on how many frames the span was cut into, to well "
-			"inside what the half-float buffer it is applied to can represent"),
+			"inside what a half float can represent, the coarsest format decay is still applied to, by the "
+			"canvas fallback"),
 		Difference < Threshold);
 
 	return true;
@@ -209,8 +210,8 @@ bool FSurfaceDecayStepSurvivesHalfFloatRounding::RunTest(const FString& Paramete
 		Threshold / PerFrameChange));
 
 	TestTrue(
-		TEXT("One decay step moves a half float by more than the largest half-ulp in the format, so it "
-			"cannot round back to the value it started at"),
+		TEXT("One decay step moves a half float by more than the largest half-ulp in the format, so on the "
+			"RGBA16f canvas fallback it cannot round back to the value it started at"),
 		StepChange > Threshold);
 
 	TestTrue(

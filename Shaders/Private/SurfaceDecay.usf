@@ -10,15 +10,6 @@ float SkidDecayRateMultiplier(float RubberExposure)
 	return 1.0 + SaturationConstant * max(RubberExposure, 0.0);
 }
 
-float RoundToNearestHalfFloat(float Value)
-{
-	const int HalfFloatExponent = max(int((asuint(Value) >> 23) & 0xFF) - 127, -14);
-	const float Spacing = asfloat(uint(HalfFloatExponent - 10 + 127) << 23);
-	const float InverseSpacing = asfloat(uint(127 - (HalfFloatExponent - 10)) << 23);
-
-	return round(Value * InverseSpacing) * Spacing;
-}
-
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
@@ -33,8 +24,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	const float SkidRetention = exp2(-HalfLivesElapsed * SkidDecayRateMultiplier(Exposure.r));
 
 	Accumulation[DispatchThreadId.xy] = float4(
-		RoundToNearestHalfFloat(Exposure.r * SharedRetention),
-		RoundToNearestHalfFloat(Exposure.g * SkidRetention),
-		RoundToNearestHalfFloat(Exposure.b * SharedRetention),
+		Exposure.r * SharedRetention,
+		Exposure.g * SkidRetention,
+		Exposure.b * SharedRetention,
 		Exposure.a);
 }

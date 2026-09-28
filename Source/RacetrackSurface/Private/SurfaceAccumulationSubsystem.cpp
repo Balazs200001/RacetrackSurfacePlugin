@@ -129,8 +129,9 @@ namespace
 		RacetrackSurfaceMapping::DecayStepsPerHalfLife,
 		TEXT("How many decay passes make up one half-life. The retention each pass applies is the same ")
 		TEXT("whatever the rate, so this trades pass frequency against how finely the fade is quantised. ")
-		TEXT("Raising it far past the default makes each retention too close to 1 to survive half-float ")
-		TEXT("rounding, at which point the pass costs its full price and changes nothing."),
+		TEXT("On the RGBA32f production buffer that quantisation is the only limit. On an RGBA16f buffer, ")
+		TEXT("which decays on the canvas, raising it far past the default makes each retention too close to 1 ")
+		TEXT("to survive half-float rounding, at which point the pass costs its full price and changes nothing."),
 		ECVF_Default);
 }
 

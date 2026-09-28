@@ -18,9 +18,11 @@ class USurfaceAccumulationBuffer : public UObject
 public:
 	static constexpr int32 GatherTargetHeight = 1;
 
-	bool Allocate(UObject* WorldContext, int32 Width, int32 Height, ETextureRenderTargetFormat Format = RTF_RGBA16f, int32 RowCount = 1);
+	static constexpr ETextureRenderTargetFormat ProductionFormat = RTF_RGBA32f;
 
-	bool Allocate(UObject* WorldContext, const FSurfaceTrackRibbon& Ribbon, ETextureRenderTargetFormat Format = RTF_RGBA16f);
+	bool Allocate(UObject* WorldContext, int32 Width, int32 Height, ETextureRenderTargetFormat Format = ProductionFormat, int32 RowCount = 1);
+
+	bool Allocate(UObject* WorldContext, const FSurfaceTrackRibbon& Ribbon, ETextureRenderTargetFormat Format = ProductionFormat);
 
 	void Release();
 
@@ -111,7 +113,7 @@ private:
 
 	int32 AllocatedRowCount = 1;
 
-	ETextureRenderTargetFormat AllocatedFormat = RTF_RGBA16f;
+	ETextureRenderTargetFormat AllocatedFormat = ProductionFormat;
 
 	bool bWarnedThatDecayIsUniform = false;
 };

@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "UObject/StrongObjectPtr.h"
+#include "SurfaceAccumulationBuffer.h"
 #include "SurfaceTrackRibbon.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -61,6 +62,11 @@ namespace RacetrackSurfaceTest
 		Ribbon.TrackWidth = HarnessTrackWidth;
 		Ribbon.bClosedLoop = Centreline.IsClosedLoop();
 		return Ribbon;
+	}
+
+	inline int64 ProductionBytesPerTexel()
+	{
+		return GPixelFormats[GetPixelFormatFromRenderTargetFormat(USurfaceAccumulationBuffer::ProductionFormat)].BlockBytes;
 	}
 
 	inline FSurfaceTrackRibbon MakeSquareTestRibbon(int32 Resolution)

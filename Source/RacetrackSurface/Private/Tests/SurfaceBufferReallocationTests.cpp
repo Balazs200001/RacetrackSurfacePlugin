@@ -101,7 +101,7 @@ bool FSurfaceBufferGrowingTheRibbonAfterPaintingStaysSafe::RunTest(const FString
 		Buffer->GetAllocatedHeight(),
 		Large.AtlasWidth(),
 		Large.AtlasHeight(),
-		static_cast<int64>(Large.AtlasTexelCount()) * 8));
+		static_cast<int64>(Large.AtlasTexelCount()) * RacetrackSurfaceTest::ProductionBytesPerTexel()));
 
 	Subsystem->ConfigureTrackRibbon(Circuit.Get(), Large);
 	PaintOneContact(*Subsystem, Large);

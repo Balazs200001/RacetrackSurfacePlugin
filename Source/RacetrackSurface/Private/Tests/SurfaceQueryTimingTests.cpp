@@ -104,7 +104,7 @@ bool FSurfaceQueryCostAndLatency::RunTest(const FString& Parameters)
 
 	const TStrongObjectPtr<USurfaceAccumulationBuffer> Buffer(NewObject<USurfaceAccumulationBuffer>());
 
-	if (!Buffer->Allocate(World, Ribbon, RTF_RGBA16f))
+	if (!Buffer->Allocate(World, Ribbon))
 	{
 		AddError(TEXT("Failed to allocate the accumulation buffer for the timing run."));
 		return false;
@@ -321,7 +321,7 @@ namespace
 
 		Out.Buffer = TStrongObjectPtr<USurfaceAccumulationBuffer>(NewObject<USurfaceAccumulationBuffer>());
 
-		if (!Out.Buffer->Allocate(World, Out.Ribbon, RTF_RGBA16f))
+		if (!Out.Buffer->Allocate(World, Out.Ribbon))
 		{
 			Test.AddError(TEXT("Failed to allocate the accumulation buffer for the ring depth sweep."));
 			return false;
