@@ -641,12 +641,21 @@ bool FSurfacePaintCostByFormat::RunTest(const FString& Parameters)
 		Production->GetAllocatedBytes(),
 		HalfFloat->GetAllocatedBytes()));
 
-	const TCHAR* Contents[] = { TEXT("empty"), TEXT("filled with incompressible noise") };
+	const TCHAR* Contents[] = {
+		TEXT("cleared after the warm-up, so carrying only the sampled frames' own paint"),
+		TEXT("filled with incompressible noise") };
 
 	bool bEveryPassResolved = true;
 
 	for (int32 ContentIndex = 0; ContentIndex < static_cast<int32>(UE_ARRAY_COUNT(Contents)); ++ContentIndex)
 	{
+		if (ContentIndex == 0)
+		{
+			Production->Clear(World);
+			HalfFloat->Clear(World);
+			FlushRenderingCommands();
+		}
+
 		if (ContentIndex == 1)
 		{
 			RacetrackSurfaceDecayTiming::FillWith(World, Production->GetTarget(), Noise.Get());
