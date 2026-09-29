@@ -42,6 +42,14 @@ public:
 		EAccumulationChannel SweptChannel,
 		float Retention);
 
+	void PaintMarbleFans(UObject* WorldContext, const TArray<FSurfaceMarbleFan>& Fans);
+
+	void PaintFrame(
+		UObject* WorldContext,
+		const TArray<FSurfaceMarbleFan>& Fans,
+		const TArray<FSurfaceBrushStroke>& Strokes,
+		float MarbleSweepRetention);
+
 	bool ApplyDecay(UObject* WorldContext, float HalfLivesElapsed);
 
 	bool CanDecayInPlace() const;
@@ -93,6 +101,8 @@ private:
 
 	void EnsureSolid();
 
+	void EnsureRamp();
+
 	bool ApplyUniformDecayOnCanvas(UObject* WorldContext, float HalfLivesElapsed);
 
 	UPROPERTY(Transient)
@@ -106,6 +116,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> Solid;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> Ramp;
 
 	int32 AllocatedWidth = 0;
 

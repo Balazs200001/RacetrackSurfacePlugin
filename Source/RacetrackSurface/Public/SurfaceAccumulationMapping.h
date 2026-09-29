@@ -36,6 +36,10 @@ namespace RacetrackSurfaceMapping
 
 	static constexpr double MinimumMarbleCurvature = 1.0e-5;
 
+	static constexpr float MarbleExposurePerUnitSlip = 5.0e-5f;
+
+	static constexpr double MarbleThrowAtFullSlip = 800.0;
+
 	static constexpr double MaximumLateralExtrapolationSeconds = 1.0 / 30.0;
 
 	static constexpr float MarbleSweepRetention = 0.5f;

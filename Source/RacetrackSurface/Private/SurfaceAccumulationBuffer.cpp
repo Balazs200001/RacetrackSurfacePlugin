@@ -22,9 +22,9 @@ namespace
 	TAutoConsoleVariable<int32> CVarTimePaint(
 		TEXT("r.RacetrackSurface.TimePaint"),
 		0,
-		TEXT("When 1, brackets each PaintStrokes call in RHI timestamp queries and logs the GPU time. ")
-		TEXT("Synchronises the game thread with the render thread on every paint, so it is a measurement ")
-		TEXT("mode rather than something to leave on."),
+		TEXT("When 1, brackets each flush's canvas work, the marble fans, the sweep and the tyre strokes, in ")
+		TEXT("RHI timestamp queries and logs the GPU time. Synchronises the game thread with the render ")
+		TEXT("thread on every flush, so it is a measurement mode rather than something to leave on."),
 		ECVF_Default);
 
 	struct FPaintTimingQueries
@@ -39,8 +39,9 @@ namespace
 	class FScopedPaintTimer
 	{
 	public:
-		explicit FScopedPaintTimer(int32 InStrokeCount)
+		FScopedPaintTimer(int32 InStrokeCount, int32 InFanCount)
 			: StrokeCount(InStrokeCount)
+			, FanCount(InFanCount)
 			, bEnabled(CVarTimePaint.GetValueOnGameThread() != 0 && GSupportsTimestampRenderQueries)
 		{
 			if (!bEnabled)
@@ -94,14 +95,16 @@ namespace
 			}
 
 			UE_LOG(LogRacetrackSurface, Log,
-				TEXT("Paint timing: %d strokes, %.4f ms"),
+				TEXT("Paint timing: %d strokes and %d marble fans, with the sweep, %.4f ms"),
 				StrokeCount,
+				FanCount,
 				static_cast<double>(Queries->EndMicroseconds - Queries->StartMicroseconds) / 1000.0);
 		}
 
 	private:
 		TSharedPtr<FPaintTimingQueries> Queries;
 		int32 StrokeCount;
+		int32 FanCount;
 		bool bEnabled;
 	};
 
@@ -190,6 +193,30 @@ namespace RacetrackSurfaceBrush
 				Texels[Offset + 2] = 255;
 				Texels[Offset + 3] = Alpha;
 			}
+		}
+
+		return Texels;
+	}
+}
+
+namespace RacetrackSurfaceMarbleRamp
+{
+	static constexpr int32 Resolution = 256;
+
+	static TArray<uint8> BuildFallingRampTexels()
+	{
+		TArray<uint8> Texels;
+		Texels.SetNumUninitialized(Resolution * 4);
+
+		for (int32 Row = 0; Row < Resolution; ++Row)
+		{
+			const uint8 Value = static_cast<uint8>(Resolution - 1 - Row);
+			const int32 Offset = Row * 4;
+
+			Texels[Offset + 0] = Value;
+			Texels[Offset + 1] = Value;
+			Texels[Offset + 2] = Value;
+			Texels[Offset + 3] = 255;
 		}
 
 		return Texels;
@@ -376,6 +403,107 @@ void USurfaceAccumulationBuffer::EnsureSolid()
 		Solid->SRGB = false;
 		Solid->UpdateResource();
 	}
+}
+
+void USurfaceAccumulationBuffer::EnsureRamp()
+{
+	if (Ramp != nullptr)
+	{
+		return;
+	}
+
+	const TArray<uint8> Texels = RacetrackSurfaceMarbleRamp::BuildFallingRampTexels();
+
+	Ramp = UTexture2D::CreateTransient(
+		1,
+		RacetrackSurfaceMarbleRamp::Resolution,
+		PF_B8G8R8A8,
+		TEXT("RacetrackSurfaceMarbleRamp"),
+		Texels);
+
+	if (Ramp != nullptr)
+	{
+		Ramp->SRGB = false;
+		Ramp->AddressX = TA_Clamp;
+		Ramp->AddressY = TA_Clamp;
+		Ramp->Filter = TF_Bilinear;
+		Ramp->UpdateResource();
+	}
+}
+
+void USurfaceAccumulationBuffer::PaintMarbleFans(UObject* WorldContext, const TArray<FSurfaceMarbleFan>& Fans)
+{
+	if (Target == nullptr || WorldContext == nullptr || Fans.Num() == 0)
+	{
+		return;
+	}
+
+	EnsureRamp();
+
+	if (Ramp == nullptr)
+	{
+		return;
+	}
+
+	UCanvas* Canvas = nullptr;
+	FVector2D CanvasSize = FVector2D::ZeroVector;
+	FDrawToRenderTargetContext Context;
+
+	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(WorldContext, Target, Canvas, CanvasSize, Context);
+
+	if (Canvas != nullptr)
+	{
+		const FScopedCanvasFlushDeferral FlushDeferral(Canvas);
+		FCanvasRowClip RowClip(Canvas, *this);
+
+		const FLinearColor Mask = ChannelMask(EAccumulationChannel::Marbles);
+
+		for (const FSurfaceMarbleFan& Fan : Fans)
+		{
+			const FVector2D TopLeft(
+				Fan.AlongTrackStart * CanvasSize.X,
+				FMath::Min(Fan.TyreEdge, Fan.ThrowEdge) * CanvasSize.Y);
+
+			const FVector2D Size(
+				(Fan.AlongTrackEnd - Fan.AlongTrackStart) * CanvasSize.X,
+				FMath::Abs(Fan.ThrowEdge - Fan.TyreEdge) * CanvasSize.Y);
+
+			if (Size.X <= 0.0 || Size.Y <= 0.0)
+			{
+				continue;
+			}
+
+			RowClip.Enter(Fan.RowIndex);
+
+			const bool bThrownTowardLargerV = Fan.ThrowEdge >= Fan.TyreEdge;
+
+			Canvas->K2_DrawTexture(
+				Ramp,
+				TopLeft,
+				Size,
+				FVector2D(0.0, bThrownTowardLargerV ? 0.0 : 1.0),
+				FVector2D(1.0, bThrownTowardLargerV ? 1.0 : -1.0),
+				Mask * Fan.Intensity,
+				BLEND_Additive,
+				0.0f,
+				FVector2D::ZeroVector);
+		}
+	}
+
+	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(WorldContext, Context);
+}
+
+void USurfaceAccumulationBuffer::PaintFrame(
+	UObject* WorldContext,
+	const TArray<FSurfaceMarbleFan>& Fans,
+	const TArray<FSurfaceBrushStroke>& Strokes,
+	float MarbleSweepRetention)
+{
+	const FScopedPaintTimer PaintTimer(Strokes.Num(), Fans.Num());
+
+	PaintMarbleFans(WorldContext, Fans);
+	SweepStrokes(WorldContext, Strokes, EAccumulationChannel::Marbles, MarbleSweepRetention);
+	PaintStrokes(WorldContext, Strokes);
 }
 
 void USurfaceAccumulationBuffer::SweepStrokes(
@@ -659,8 +787,6 @@ void USurfaceAccumulationBuffer::PaintStrokes(
 	{
 		return;
 	}
-
-	const FScopedPaintTimer PaintTimer(Strokes.Num());
 
 	UCanvas* Canvas = nullptr;
 	FVector2D CanvasSize = FVector2D::ZeroVector;

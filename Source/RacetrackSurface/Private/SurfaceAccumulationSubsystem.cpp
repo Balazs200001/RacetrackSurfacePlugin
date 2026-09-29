@@ -188,6 +188,7 @@ void USurfaceAccumulationSubsystem::Deinitialize()
 {
 	PendingContacts.Empty();
 	StrokesResolvedThisFrame.Empty();
+	MarbleFansResolvedThisFrame.Empty();
 	Centreline.Reset();
 	SignedCurvatureProfile.Empty();
 
@@ -338,7 +339,9 @@ void USurfaceAccumulationSubsystem::ConfigureTrackRibbon(
 	if (NewCentreline == nullptr)
 	{
 		UE_LOG(LogRacetrackSurface, Warning,
-			TEXT("Surface ribbon configured without a centreline, so world-space contacts cannot be placed"));
+			TEXT("Surface ribbon configured without a centreline, so world-space contacts cannot be placed and no "
+				"contact throws marbles, because the side and the threshold both come from the centreline's "
+				"curvature"));
 	}
 
 	if (!Ribbon.FitsTheTextureCap())
@@ -875,6 +878,7 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 {
 	PendingContacts.Reset();
 	StrokesResolvedThisFrame.Reset();
+	MarbleFansResolvedThisFrame.Reset();
 	ContactsDiscardedOutsideRibbon = 0;
 	ContactsDiscardedWithoutCentreline = 0;
 	DecayProgressInHalfLives = 0.0f;
@@ -939,6 +943,86 @@ void USurfaceAccumulationSubsystem::BuildStrokes(
 		{
 			AppendStroke(Contact, FromDistance, FromAlpha, ToDistance, ToAlpha, OutStrokes);
 		});
+}
+
+void USurfaceAccumulationSubsystem::BuildMarbleFans(
+	const FSurfaceTrackContact& Contact,
+	float DeltaSeconds,
+	TArray<FSurfaceMarbleFan>& OutFans) const
+{
+	if (SignedCurvatureProfile.Num() == 0)
+	{
+		return;
+	}
+
+	ForEachStrokePiece(
+		Contact,
+		DeltaSeconds,
+		[this, &Contact, &OutFans](double FromDistance, double FromAlpha, double ToDistance, double ToAlpha)
+		{
+			AppendMarbleFan(Contact, FromDistance, FromAlpha, ToDistance, ToAlpha, OutFans);
+		});
+}
+
+void USurfaceAccumulationSubsystem::AppendMarbleFan(
+	const FSurfaceTrackContact& Contact,
+	double FromDistance,
+	double FromAlpha,
+	double ToDistance,
+	double ToAlpha,
+	TArray<FSurfaceMarbleFan>& OutFans) const
+{
+	if (!Ribbon.ContainsLateralOffset(FromAlpha) && !Ribbon.ContainsLateralOffset(ToAlpha))
+	{
+		return;
+	}
+
+	const float SlipAmount = FMath::Clamp(Contact.SlipAmount, 0.0f, 1.0f);
+	const double Curvature = GetSignedCurvatureAtDistance((FromDistance + ToDistance) * 0.5);
+
+	if (SlipAmount <= 0.0f || FMath::Abs(Curvature) < RacetrackSurfaceMapping::MinimumMarbleCurvature)
+	{
+		return;
+	}
+
+	const double FromAlongTrack = Ribbon.NormalisedAlongTrack(FromDistance);
+	const double ToAlongTrack = Ribbon.NormalisedAlongTrack(ToDistance);
+	const double MidAlongTrack = (FromAlongTrack + ToAlongTrack) * 0.5;
+	const int32 RowIndex = Ribbon.RowIndexAt(MidAlongTrack);
+
+	const double FromAtlasX = Ribbon.RibbonToAtlasInRow(RowIndex, FromAlongTrack, 0.5).X;
+	const double ToAtlasX = Ribbon.RibbonToAtlasInRow(RowIndex, ToAlongTrack, 0.5).X;
+
+	const double AtlasWidth = FMath::Max(Ribbon.AtlasWidth(), 1);
+	const double AlongTrackTexels = FMath::Abs(ToAtlasX - FromAtlasX) * AtlasWidth;
+
+	if (AlongTrackTexels <= UE_DOUBLE_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const double WidthTexels = Ribbon.WorldDistanceToTexels(Contact.ContactWidth);
+	const double HalfWidthAtlas = WidthTexels * 0.5 / AtlasWidth;
+	const double SweptShare = AlongTrackTexels / (AlongTrackTexels + WidthTexels);
+
+	const double CentimetresToAlpha = 2.0 / FMath::Max(Ribbon.TrackWidth, UE_DOUBLE_SMALL_NUMBER);
+	const double Side = -FMath::Sign(Curvature);
+	const double TyreEdgeAlpha = (FromAlpha + ToAlpha) * 0.5 + Side * Contact.ContactWidth * 0.5 * CentimetresToAlpha;
+	const double ThrowAlpha =
+		TyreEdgeAlpha + Side * SlipAmount * RacetrackSurfaceMapping::MarbleThrowAtFullSlip * CentimetresToAlpha;
+
+	FSurfaceMarbleFan Fan;
+	Fan.AlongTrackStart = FMath::Min(FromAtlasX, ToAtlasX) - HalfWidthAtlas;
+	Fan.AlongTrackEnd = FMath::Max(FromAtlasX, ToAtlasX) + HalfWidthAtlas;
+	Fan.TyreEdge = Ribbon.RibbonToAtlasInRow(
+		RowIndex, MidAlongTrack, FSurfaceTrackRibbon::NormalisedAcrossTrack(TyreEdgeAlpha)).Y;
+	Fan.ThrowEdge = Ribbon.RibbonToAtlasInRow(
+		RowIndex, MidAlongTrack, FSurfaceTrackRibbon::NormalisedAcrossTrack(ThrowAlpha)).Y;
+	Fan.Intensity = static_cast<float>(
+		SlipAmount * RacetrackSurfaceMapping::MarbleExposurePerUnitSlip * GetDepositionScale() * SweptShare);
+	Fan.RowIndex = RowIndex;
+
+	OutFans.Add(Fan);
 }
 
 void USurfaceAccumulationSubsystem::ForEachStrokePiece(
@@ -1016,22 +1100,22 @@ void USurfaceAccumulationSubsystem::ForEachStrokePiece(
 void USurfaceAccumulationSubsystem::FlushPendingContacts(float DeltaSeconds)
 {
 	StrokesResolvedThisFrame.Reset(PendingContacts.Num());
+	MarbleFansResolvedThisFrame.Reset(PendingContacts.Num());
 
 	for (const FSurfaceTrackContact& Contact : PendingContacts)
 	{
 		BuildStrokes(Contact, DeltaSeconds, StrokesResolvedThisFrame);
+		BuildMarbleFans(Contact, DeltaSeconds, MarbleFansResolvedThisFrame);
 	}
 
 	PendingContacts.Reset();
 
 	if (StrokesResolvedThisFrame.Num() > 0 && EnsureBuffer())
 	{
-		Buffer->SweepStrokes(
+		Buffer->PaintFrame(
 			this,
+			MarbleFansResolvedThisFrame,
 			StrokesResolvedThisFrame,
-			EAccumulationChannel::Marbles,
 			GetMarbleSweepRetention());
-
-		Buffer->PaintStrokes(this, StrokesResolvedThisFrame);
 	}
 }

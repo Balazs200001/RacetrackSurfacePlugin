@@ -144,10 +144,20 @@ public:
 		return StrokesResolvedThisFrame;
 	}
 
+	const TArray<FSurfaceMarbleFan>& GetMarbleFansResolvedThisFrame() const
+	{
+		return MarbleFansResolvedThisFrame;
+	}
+
 	void BuildStrokes(
 		const FSurfaceTrackContact& Contact,
 		float DeltaSeconds,
 		TArray<FSurfaceBrushStroke>& OutStrokes) const;
+
+	void BuildMarbleFans(
+		const FSurfaceTrackContact& Contact,
+		float DeltaSeconds,
+		TArray<FSurfaceMarbleFan>& OutFans) const;
 
 	USurfaceAccumulationBuffer* GetBuffer() const
 	{
@@ -218,6 +228,14 @@ private:
 		double ToAlpha,
 		TArray<FSurfaceBrushStroke>& OutStrokes) const;
 
+	void AppendMarbleFan(
+		const FSurfaceTrackContact& Contact,
+		double FromDistance,
+		double FromAlpha,
+		double ToDistance,
+		double ToAlpha,
+		TArray<FSurfaceMarbleFan>& OutFans) const;
+
 	FSurfaceTrackRibbon Ribbon;
 
 	TWeakObjectPtr<const USplineComponent> Centreline;
@@ -230,6 +248,8 @@ private:
 	TArray<FSurfaceTrackContact> PendingContacts;
 
 	TArray<FSurfaceBrushStroke> StrokesResolvedThisFrame;
+
+	TArray<FSurfaceMarbleFan> MarbleFansResolvedThisFrame;
 
 	int32 ContactsDiscardedOutsideRibbon = 0;
 

@@ -126,6 +126,21 @@ struct FSurfaceQueryHandle
 	}
 };
 
+struct FSurfaceMarbleFan
+{
+	double AlongTrackStart = 0.0;
+
+	double AlongTrackEnd = 0.0;
+
+	double TyreEdge = 0.0;
+
+	double ThrowEdge = 0.0;
+
+	float Intensity = 0.0f;
+
+	int32 RowIndex = 0;
+};
+
 USTRUCT(BlueprintType)
 struct FSurfaceBrushStroke
 {
