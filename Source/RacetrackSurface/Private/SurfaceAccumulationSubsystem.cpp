@@ -7,6 +7,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "ProfilingDebugging/CsvProfiler.h"
 #include "SurfaceAccumulationBuffer.h"
 #include "SurfaceAccumulationMapping.h"
 #include "SurfaceQueryGather.h"
@@ -14,6 +15,8 @@
 #include "SurfaceTrackSpace.h"
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
+
+CSV_DEFINE_CATEGORY(RacetrackSurface, true);
 
 namespace
 {
@@ -273,6 +276,8 @@ void USurfaceAccumulationSubsystem::PublishRibbonToMaterials()
 
 void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
 {
+	CSV_SCOPED_TIMING_STAT(RacetrackSurface, SubsystemTick);
+
 	Super::Tick(DeltaTime);
 
 	ApplyDecayWhenAStepHasElapsed(DeltaTime);
@@ -282,6 +287,8 @@ void USurfaceAccumulationSubsystem::Tick(float DeltaTime)
 
 void USurfaceAccumulationSubsystem::ApplyDecayWhenAStepHasElapsed(float DeltaSeconds)
 {
+	CSV_SCOPED_TIMING_STAT(RacetrackSurface, Decay);
+
 	const float Rate = GetDecayRate();
 
 	if (Rate <= 0.0f)
@@ -434,6 +441,8 @@ double USurfaceAccumulationSubsystem::GetSignedCurvatureAtDistance(double Distan
 
 bool USurfaceAccumulationSubsystem::RegisterSurfaceContact(const FSurfaceContact& Contact)
 {
+	CSV_SCOPED_TIMING_STAT(RacetrackSurface, RegisterContact);
+
 	const USplineComponent* Spline = Centreline.Get();
 
 	if (Spline == nullptr)
@@ -677,6 +686,8 @@ FSurfaceStateSample USurfaceAccumulationSubsystem::QuerySurfaceState(
 	const FSurfaceQueryHandle& Handle,
 	const FVector& WorldPosition)
 {
+	CSV_SCOPED_TIMING_STAT(RacetrackSurface, QuerySurfaceState);
+
 	const USplineComponent* Spline = Centreline.Get();
 
 	if (Spline == nullptr)
@@ -777,6 +788,8 @@ bool USurfaceAccumulationSubsystem::FindQuerySubmissionTime(uint64 Frame, float&
 
 void USurfaceAccumulationSubsystem::ResolveSurfaceQueries()
 {
+	CSV_SCOPED_TIMING_STAT(RacetrackSurface, ResolveQueries);
+
 	if (GetActiveSurfaceQueryCount() == 0)
 	{
 		return;
@@ -1099,6 +1112,8 @@ void USurfaceAccumulationSubsystem::ForEachStrokePiece(
 
 void USurfaceAccumulationSubsystem::FlushPendingContacts(float DeltaSeconds)
 {
+	CSV_SCOPED_TIMING_STAT(RacetrackSurface, Paint);
+
 	StrokesResolvedThisFrame.Reset(PendingContacts.Num());
 	MarbleFansResolvedThisFrame.Reset(PendingContacts.Num());
 
