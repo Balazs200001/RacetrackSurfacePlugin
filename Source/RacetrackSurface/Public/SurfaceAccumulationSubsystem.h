@@ -119,6 +119,10 @@ public:
 
 	void ResetSurface();
 
+	bool SaveSurfaceState(const FString& FilePath);
+
+	bool LoadSurfaceState(const FString& FilePath);
+
 	int32 GetPendingContactCount() const
 	{
 		return PendingContacts.Num();

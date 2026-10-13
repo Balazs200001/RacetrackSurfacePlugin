@@ -666,6 +666,54 @@ void USurfaceAccumulationBuffer::Clear(UObject* WorldContext)
 	UKismetRenderingLibrary::ClearRenderTarget2D(WorldContext, Target, FLinearColor::Black);
 }
 
+bool USurfaceAccumulationBuffer::ReadTexels(UObject* WorldContext, TArray<FLinearColor>& OutTexels) const
+{
+	if (Target == nullptr || WorldContext == nullptr || AllocatedFormat != RTF_RGBA32f)
+	{
+		return false;
+	}
+
+	return UKismetRenderingLibrary::ReadRenderTargetRaw(WorldContext, Target, OutTexels, false)
+		&& OutTexels.Num() == AllocatedWidth * AllocatedHeight;
+}
+
+bool USurfaceAccumulationBuffer::WriteTexels(TArray<FLinearColor>&& Texels)
+{
+	if (Target == nullptr || AllocatedFormat != RTF_RGBA32f || Texels.Num() != AllocatedWidth * AllocatedHeight)
+	{
+		return false;
+	}
+
+	FTextureRenderTargetResource* Resource = Target->GameThread_GetRenderTargetResource();
+
+	if (Resource == nullptr)
+	{
+		return false;
+	}
+
+	const FUpdateTextureRegion2D Region(0, 0, 0, 0, static_cast<uint32>(AllocatedWidth), static_cast<uint32>(AllocatedHeight));
+	const uint32 SourcePitch = static_cast<uint32>(AllocatedWidth) * sizeof(FLinearColor);
+	TSharedPtr<TArray<FLinearColor>> UploadedTexels = MakeShared<TArray<FLinearColor>>(MoveTemp(Texels));
+
+	ENQUEUE_RENDER_COMMAND(RacetrackSurfaceWriteTexels)(
+		[Resource, Region, SourcePitch, UploadedTexels](FRHICommandListImmediate& RHICmdList)
+		{
+			RHICmdList.UpdateTexture2D(
+				Resource->GetRenderTargetTexture(),
+				0,
+				Region,
+				SourcePitch,
+				reinterpret_cast<const uint8*>(UploadedTexels->GetData()));
+
+			RHICmdList.EnqueueLambda([UploadedTexels](FRHICommandListImmediate&) mutable
+			{
+				UploadedTexels.Reset();
+			});
+		});
+
+	return true;
+}
+
 UTextureRenderTarget2D* USurfaceAccumulationBuffer::EnsureGatherTarget(UObject* WorldContext, int32 SlotCount)
 {
 	if (WorldContext == nullptr)

@@ -56,6 +56,10 @@ public:
 
 	void Clear(UObject* WorldContext);
 
+	bool ReadTexels(UObject* WorldContext, TArray<FLinearColor>& OutTexels) const;
+
+	bool WriteTexels(TArray<FLinearColor>&& Texels);
+
 	UTextureRenderTarget2D* EnsureGatherTarget(UObject* WorldContext, int32 SlotCount);
 
 	void GatherTaps(UObject* WorldContext, const TArray<FSurfaceQueryTap>& Taps, int32 SlotCount);

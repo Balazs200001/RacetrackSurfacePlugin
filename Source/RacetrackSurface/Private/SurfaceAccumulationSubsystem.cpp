@@ -12,6 +12,7 @@
 #include "SurfaceAccumulationMapping.h"
 #include "SurfaceQueryGather.h"
 #include "SurfaceQueryReadback.h"
+#include "SurfaceStateFile.h"
 #include "SurfaceTrackSpace.h"
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
@@ -136,6 +137,20 @@ namespace
 		TEXT("which decays on the canvas, raising it far past the default makes each retention too close to 1 ")
 		TEXT("to survive half-float rounding, at which point the pass costs its full price and changes nothing."),
 		ECVF_Default);
+
+	FSurfaceStateLayout SurfaceStateLayoutOf(const USurfaceAccumulationBuffer& Buffer, const FSurfaceTrackRibbon& Ribbon)
+	{
+		FSurfaceStateLayout Layout;
+		Layout.AtlasWidth = Buffer.GetAllocatedWidth();
+		Layout.AtlasHeight = Buffer.GetAllocatedHeight();
+		Layout.RowCount = Buffer.GetAllocatedRowCount();
+		Layout.TargetFormat = static_cast<int32>(Buffer.GetAllocatedFormat());
+		Layout.TrackLength = Ribbon.TrackLength;
+		Layout.TrackWidth = Ribbon.TrackWidth;
+		Layout.CentimetresPerTexel = Ribbon.CentimetresPerTexel;
+		Layout.bClosedLoop = Ribbon.bClosedLoop;
+		return Layout;
+	}
 }
 
 float USurfaceAccumulationSubsystem::GetDepositionScale()
@@ -903,6 +918,85 @@ void USurfaceAccumulationSubsystem::ResetSurface()
 	{
 		Buffer->Clear(this);
 	}
+}
+
+bool USurfaceAccumulationSubsystem::SaveSurfaceState(const FString& FilePath)
+{
+	if (!EnsureBuffer())
+	{
+		UE_LOG(LogRacetrackSurface, Warning, TEXT("No accumulation buffer to save to %s"), *FilePath);
+		return false;
+	}
+
+	FSurfaceStateFile State;
+	State.Layout = SurfaceStateLayoutOf(*Buffer, Ribbon);
+	State.DecayProgressInHalfLives = DecayProgressInHalfLives;
+
+	if (!Buffer->ReadTexels(this, State.Texels) || !RacetrackSurfaceStateFile::Write(FilePath, State))
+	{
+		UE_LOG(LogRacetrackSurface, Warning, TEXT("Could not save the surface state to %s"), *FilePath);
+		return false;
+	}
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Saved the surface state, %d x %d texels in %d rows, to %s"),
+		State.Layout.AtlasWidth,
+		State.Layout.AtlasHeight,
+		State.Layout.RowCount,
+		*FilePath);
+
+	return true;
+}
+
+bool USurfaceAccumulationSubsystem::LoadSurfaceState(const FString& FilePath)
+{
+	FSurfaceStateFile State;
+
+	if (!EnsureBuffer() || !RacetrackSurfaceStateFile::Read(FilePath, State))
+	{
+		UE_LOG(LogRacetrackSurface, Warning, TEXT("Could not load a surface state from %s"), *FilePath);
+		return false;
+	}
+
+	const FSurfaceStateLayout LiveLayout = SurfaceStateLayoutOf(*Buffer, Ribbon);
+
+	if (State.Layout != LiveLayout)
+	{
+		UE_LOG(LogRacetrackSurface, Warning,
+			TEXT("%s was saved for %.1f cm of track at %.1f cm wide, a %d x %d atlas in %d rows, but this ribbon is ")
+			TEXT("%.1f cm at %.1f cm wide, a %d x %d atlas in %d rows, so it is not loaded"),
+			*FilePath,
+			State.Layout.TrackLength,
+			State.Layout.TrackWidth,
+			State.Layout.AtlasWidth,
+			State.Layout.AtlasHeight,
+			State.Layout.RowCount,
+			LiveLayout.TrackLength,
+			LiveLayout.TrackWidth,
+			LiveLayout.AtlasWidth,
+			LiveLayout.AtlasHeight,
+			LiveLayout.RowCount);
+		return false;
+	}
+
+	ResetSurface();
+
+	if (!Buffer->WriteTexels(MoveTemp(State.Texels)))
+	{
+		UE_LOG(LogRacetrackSurface, Warning, TEXT("Could not upload the surface state from %s"), *FilePath);
+		return false;
+	}
+
+	DecayProgressInHalfLives = State.DecayProgressInHalfLives;
+
+	UE_LOG(LogRacetrackSurface, Log,
+		TEXT("Loaded the surface state, %d x %d texels in %d rows, from %s"),
+		State.Layout.AtlasWidth,
+		State.Layout.AtlasHeight,
+		State.Layout.RowCount,
+		*FilePath);
+
+	return true;
 }
 
 void USurfaceAccumulationSubsystem::AppendStroke(
