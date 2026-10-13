@@ -81,6 +81,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
+	static bool SaveSurfaceState(const UObject* WorldContextObject, const FString& FilePath);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
+	static bool LoadSurfaceState(const UObject* WorldContextObject, const FString& FilePath);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
 	static UTextureRenderTarget2D* GetAccumulationTarget(const UObject* WorldContextObject);
 
 	static USurfaceAccumulationSubsystem* FindSubsystem(const UObject* WorldContextObject);

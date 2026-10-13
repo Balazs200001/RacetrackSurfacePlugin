@@ -135,6 +135,20 @@ void URacetrackSurfaceBlueprintLibrary::ResetSurface(const UObject* WorldContext
 	}
 }
 
+bool URacetrackSurfaceBlueprintLibrary::SaveSurfaceState(const UObject* WorldContextObject, const FString& FilePath)
+{
+	USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject);
+
+	return Subsystem != nullptr && Subsystem->SaveSurfaceState(FilePath);
+}
+
+bool URacetrackSurfaceBlueprintLibrary::LoadSurfaceState(const UObject* WorldContextObject, const FString& FilePath)
+{
+	USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject);
+
+	return Subsystem != nullptr && Subsystem->LoadSurfaceState(FilePath);
+}
+
 UTextureRenderTarget2D* URacetrackSurfaceBlueprintLibrary::GetAccumulationTarget(const UObject* WorldContextObject)
 {
 	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
