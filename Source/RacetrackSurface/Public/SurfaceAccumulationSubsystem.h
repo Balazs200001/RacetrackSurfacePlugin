@@ -32,7 +32,12 @@ public:
 
 	static float GetDepositionScale();
 
-	static float GetDecayRate();
+	float GetDecayRate() const
+	{
+		return DecayRate;
+	}
+
+	void SetDecayRate(float Rate);
 
 	static float GetDecayStepsPerHalfLife();
 
@@ -258,6 +263,8 @@ private:
 	int32 ContactsDiscardedOutsideRibbon = 0;
 
 	int32 ContactsDiscardedWithoutCentreline = 0;
+
+	float DecayRate = 0.0f;
 
 	float DecayHalfLifeSeconds = RacetrackSurfaceMapping::FallbackDecayHalfLifeSeconds;
 

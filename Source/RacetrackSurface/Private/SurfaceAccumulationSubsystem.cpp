@@ -14,6 +14,7 @@
 #include "SurfaceQueryReadback.h"
 #include "SurfaceStateFile.h"
 #include "SurfaceTrackSpace.h"
+#include "UObject/UObjectIterator.h"
 
 DEFINE_LOG_CATEGORY(LogRacetrackSurface);
 
@@ -64,10 +65,8 @@ namespace
 			FString::Printf(TEXT("Deposition now %.2fx the derived rate"), Variable->GetFloat()));
 	}
 
-	void AnnounceDecayRate(IConsoleVariable* Variable)
+	void AnnounceDecayRate(float Rate)
 	{
-		const float Rate = Variable->GetFloat();
-
 		if (Rate <= 0.0f)
 		{
 			AnnounceOnScreen(
@@ -79,6 +78,19 @@ namespace
 		AnnounceOnScreen(
 			TEXT("RacetrackSurface.DecayRate"),
 			FString::Printf(TEXT("Decay now %.2fx the calibrated fade"), Rate));
+	}
+
+	void SetDecayRateOnEverySubsystem(IConsoleVariable* Variable)
+	{
+		const float Rate = Variable->GetFloat();
+
+		for (TObjectIterator<USurfaceAccumulationSubsystem> It; It; ++It)
+		{
+			if (IsValid(*It))
+			{
+				It->SetDecayRate(Rate);
+			}
+		}
 	}
 
 	TAutoConsoleVariable<float> CVarDepositionScale(
@@ -96,8 +108,11 @@ namespace
 		TEXT("Multiplies the decay rate constant derived from the half-life in SurfaceAccumulationMapping.h. ")
 		TEXT("0 skips the decay pass entirely, which is the state every measurement before C10 was taken in. ")
 		TEXT("1 is the derived half-life, measured against dilated world time so a lap loses the same rubber ")
-		TEXT("whatever speed you watch it at."),
-		FConsoleVariableDelegate::CreateStatic(&AnnounceDecayRate),
+		TEXT("whatever speed you watch it at. Setting this sets the rate of every live surface subsystem, and a ")
+		TEXT("new one starts from it. Code sets one world's rate with USurfaceAccumulationSubsystem::SetDecayRate, ")
+		TEXT("which this variable does not see, so after a code write its value can be stale. ")
+		TEXT("USurfaceAccumulationSubsystem::GetDecayRate is the rate in force."),
+		FConsoleVariableDelegate::CreateStatic(&SetDecayRateOnEverySubsystem),
 		ECVF_Default);
 
 	TAutoConsoleVariable<float> CVarMarbleSweepRetention(
@@ -158,9 +173,16 @@ float USurfaceAccumulationSubsystem::GetDepositionScale()
 	return CVarDepositionScale.GetValueOnGameThread();
 }
 
-float USurfaceAccumulationSubsystem::GetDecayRate()
+void USurfaceAccumulationSubsystem::SetDecayRate(float Rate)
 {
-	return CVarDecayRate.GetValueOnGameThread();
+	DecayRate = FMath::Max(Rate, 0.0f);
+
+	if (DecayRate <= 0.0f)
+	{
+		DecayProgressInHalfLives = 0.0f;
+	}
+
+	AnnounceDecayRate(DecayRate);
 }
 
 float USurfaceAccumulationSubsystem::GetMarbleSweepRetention()
@@ -192,6 +214,8 @@ void USurfaceAccumulationSubsystem::SetDecayHalfLifeSeconds(float Seconds)
 void USurfaceAccumulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+
+	DecayRate = FMath::Max(CVarDecayRate.GetValueOnGameThread(), 0.0f);
 
 	EnsureQueryReadback();
 
