@@ -89,6 +89,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
 		meta = (WorldContext = "WorldContextObject"))
+	static void SetDecayRate(const UObject* WorldContextObject, float Rate);
+
+	UFUNCTION(BlueprintPure, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
+	static float GetDecayRate(const UObject* WorldContextObject);
+
+	UFUNCTION(BlueprintCallable, Category = "Racetrack Surface",
+		meta = (WorldContext = "WorldContextObject"))
 	static UTextureRenderTarget2D* GetAccumulationTarget(const UObject* WorldContextObject);
 
 	static USurfaceAccumulationSubsystem* FindSubsystem(const UObject* WorldContextObject);

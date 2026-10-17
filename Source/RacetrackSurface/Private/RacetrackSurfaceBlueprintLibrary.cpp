@@ -149,6 +149,21 @@ bool URacetrackSurfaceBlueprintLibrary::LoadSurfaceState(const UObject* WorldCon
 	return Subsystem != nullptr && Subsystem->LoadSurfaceState(FilePath);
 }
 
+void URacetrackSurfaceBlueprintLibrary::SetDecayRate(const UObject* WorldContextObject, float Rate)
+{
+	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
+	{
+		Subsystem->SetDecayRate(Rate);
+	}
+}
+
+float URacetrackSurfaceBlueprintLibrary::GetDecayRate(const UObject* WorldContextObject)
+{
+	const USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject);
+
+	return Subsystem != nullptr ? Subsystem->GetDecayRate() : 0.0f;
+}
+
 UTextureRenderTarget2D* URacetrackSurfaceBlueprintLibrary::GetAccumulationTarget(const UObject* WorldContextObject)
 {
 	if (USurfaceAccumulationSubsystem* Subsystem = FindSubsystem(WorldContextObject))
