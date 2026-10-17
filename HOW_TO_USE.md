@@ -251,6 +251,11 @@ The three channels fade differently:
 **Decay is off by default.** Turn it on with `r.RacetrackSurface.DecayRate 1`, which gives a half-life of 15
 minutes of game time. To change the half-life from C++, call `SetDecayHalfLifeSeconds`.
 
+To set the rate from code, call `SetDecayRate(Rate)` on the subsystem, or **Set Decay Rate** in Blueprint. That
+sets one world's rate, while the console variable sets every world's. Whichever was set last wins, so a rain
+system can raise the rate and put it back. `GetDecayRate()` returns the rate in force, and the console variable
+can be out of date after a code set.
+
 | Call | What it does |
 |---|---|
 | `ResetSurface()` | Clears the track back to clean tarmac. |
