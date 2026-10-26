@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "SurfaceDecayPass.h"
 
 #include "GlobalShader.h"

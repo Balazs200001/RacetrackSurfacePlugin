@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "RacetrackSurface.h"
 
 #include "Interfaces/IPluginManager.h"

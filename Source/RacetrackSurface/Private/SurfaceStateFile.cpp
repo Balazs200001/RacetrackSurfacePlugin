@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "SurfaceStateFile.h"
 
 #include "Misc/Compression.h"

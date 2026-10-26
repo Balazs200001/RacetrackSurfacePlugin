@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "SurfaceAccumulationSubsystem.h"
 
 #include "Components/SplineComponent.h"

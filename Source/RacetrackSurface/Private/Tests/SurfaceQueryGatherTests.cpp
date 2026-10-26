@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "Misc/AutomationTest.h"
 #include "SurfaceQueryGather.h"
 #include "SurfaceTrackRibbon.h"

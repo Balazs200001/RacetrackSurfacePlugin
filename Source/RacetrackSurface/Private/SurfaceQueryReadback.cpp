@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "SurfaceQueryReadback.h"
 
 #include "Engine/TextureRenderTarget2D.h"

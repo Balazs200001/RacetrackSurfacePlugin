@@ -1,3 +1,5 @@
+// Copyright 2026 Balázs Fábián. All Rights Reserved.
+
 #include "RacetrackSurfaceBlueprintLibrary.h"
 
 #include "Engine/Engine.h"
