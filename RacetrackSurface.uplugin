@@ -2,20 +2,23 @@
   "FileVersion": 3,
   "Version": 1,
   "VersionName": "1.0",
+  "EngineVersion": "5.8.0",
   "Modules": [
     {
       "Name": "RacetrackSurface",
       "Type": "Runtime",
-      "LoadingPhase": "PostConfigInit"
+      "LoadingPhase": "PostConfigInit",
+      "PlatformAllowList": [ "Win64" ]
     },
     {
       "Name": "RacetrackSurfaceEditor",
       "Type": "Editor",
-      "LoadingPhase": "PostEngineInit"
+      "LoadingPhase": "PostEngineInit",
+      "PlatformAllowList": [ "Win64" ]
     }
   ],
-  "FriendlyName": "RacetrackSurface",
-  "Description": "Racetrack surface rubber accumulation system",
+  "FriendlyName": "Racetrack Surface",
+  "Description": "Persistent racetrack surface state: rubber builds up into an emergent racing line, skid marks fade faster on heavily rubbered track, and tyre marbles collect off-line. A query API returns the surface state at a position so any vehicle system can adjust its own grip.",
   "Category": "Rendering",
   "CreatedBy": "Balázs Fábián",
   "CreatedByURL": "https://github.com/Balazs200001",
@@ -26,5 +29,5 @@
   "Installed": false,
   "IsBetaVersion": false,
   "Plugins": [],
-  "SupportedTargetPlatforms": null
+  "SupportedTargetPlatforms": [ "Win64" ]
 }
