@@ -9,12 +9,6 @@
       "Type": "Runtime",
       "LoadingPhase": "PostConfigInit",
       "PlatformAllowList": [ "Win64" ]
-    },
-    {
-      "Name": "RacetrackSurfaceEditor",
-      "Type": "Editor",
-      "LoadingPhase": "PostEngineInit",
-      "PlatformAllowList": [ "Win64" ]
     }
   ],
   "FriendlyName": "Racetrack Surface",
